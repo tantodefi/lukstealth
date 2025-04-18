@@ -31,7 +31,7 @@ export const lukso = {
   },
   rpcUrls: {
     default: {
-      http: ['https://rpc.lukso.network']
+      http: ['https://rpc.lukso.sigmacore.io']
     }
   },
   blockExplorers: {
@@ -43,7 +43,7 @@ export const lukso = {
 } as const;
 
 // Get RPC URL from environment variable or use default mainnet URL
-export const RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.lukso.network';
+export const RPC_URL = import.meta.env.VITE_RPC_URL || 'https://rpc.lukso.sigmacore.io';
 if (!RPC_URL) throw new Error('VITE_RPC_URL is required');
 
 export const config = createConfig({

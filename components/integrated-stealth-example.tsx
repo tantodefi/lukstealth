@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getSignature, generateKeysFromSignature, generateStealthMetaAddressFromSignature, generateStealthAddress, computeStealthKey } from '../utils/crypto';
-import { formatEther } from 'ethers';
+import { formatEther, parseEther, encodeFunctionData } from 'viem';
 import {
   VALID_SCHEME_ID,
   createStealthClient,
@@ -13,18 +13,18 @@ import {
   type Address,
   createWalletClient,
   custom,
-  parseEther,
   type Chain,
-  createPublicClient,
-  encodeFunctionData
+  createPublicClient
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import 'viem/window';
 import { useBalance, useWaitForTransactionReceipt } from 'wagmi';
+// Node.js Buffer for binary data handling
+import { Buffer } from 'buffer';
 
 // Define RPC URL
-export const RPC_URL = import.meta.env?.VITE_RPC_URL || 'https://rpc.lukso.network';
+export const RPC_URL = import.meta.env?.VITE_RPC_URL || 'https://rpc.lukso.sigmacore.io';
 
 // Add LUKSO UP interface to window
 declare global {
@@ -245,7 +245,8 @@ const IntegratedStealthExample = ({
     computeStealthKey: false,
     registerMetaAddress: false,
     announceStealthAddress: false,
-    checkRegistration: false
+    checkRegistration: false,
+    sendStealth: false
   });
   const [error, setError] = useState(null);
   const [keys, setKeys] = useState([]);
@@ -253,6 +254,7 @@ const IntegratedStealthExample = ({
   const [stealthAddressDetails, setStealthAddressDetails] = useState(null);
   const [stealthPrivateKey, setStealthPrivateKey] = useState('');
   const [showWarningModal, setShowWarningModal] = useState(false);
+  const [showStealthSendModal, setShowStealthSendModal] = useState(false);
   const [stealthAddressBalance, setStealthAddressBalance] = useState(null);
   const [isStealthAddressBalanceLoading, setIsStealthAddressBalanceLoading] = useState(false);
   const [showDebugInfo, setShowDebugInfo] = useState(false);
@@ -264,6 +266,16 @@ const IntegratedStealthExample = ({
   const [registrationTxHash, setRegistrationTxHash] = useState('');
   const [announcementTxHash, setAnnouncementTxHash] = useState('');
   const [showRegistrationSection, setShowRegistrationSection] = useState(false);
+  
+  // Stealth send state
+  const [recipientAddress, setRecipientAddress] = useState('');
+  const [sendAmount, setSendAmount] = useState('0.01');
+  const [sendTxHash, setSendTxHash] = useState('');
+  const [isVerifyingAddress, setIsVerifyingAddress] = useState(false);
+  const [isAddressVerified, setIsAddressVerified] = useState(false);
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [verifiedStealthMetaAddress, setVerifiedStealthMetaAddress] = useState('');
+  const [generatedStealthAddress, setGeneratedStealthAddress] = useState<any>(null);
 
   // Constants
   const CHAIN = lukso;
@@ -903,6 +915,423 @@ const IntegratedStealthExample = ({
     }
   };
 
+  const verifyRecipientAddress = async () => {
+    if (!recipientAddress) {
+      setVerificationMessage('Please enter a recipient address');
+      setIsAddressVerified(false);
+      setVerifiedStealthMetaAddress('');
+      setGeneratedStealthAddress(null);
+      return;
+    }
+
+    try {
+      setIsVerifyingAddress(true);
+      setVerificationMessage('Verifying address...');
+      
+      const registryContract = {
+        address: LUKSO_MAINNET_ERC5564_REGISTRY as `0x${string}`,
+        abi: ERC5564_REGISTRY_ABI
+      };
+      
+      const provider = window.ethereum;
+      const metaAddress = await provider.request({
+        method: 'eth_call',
+        params: [{
+          to: registryContract.address,
+          data: encodeFunctionData({
+            abi: registryContract.abi,
+            functionName: 'getStealthMetaAddress',
+            args: [recipientAddress]
+          })
+        }, 'latest']
+      });
+      
+      if (metaAddress && metaAddress !== '0x') {
+        // Decode the result
+        const decoded = new TextDecoder().decode(
+          new Uint8Array(
+            Buffer.from(metaAddress.slice(2), 'hex')
+          ).filter(x => x !== 0)
+        );
+        
+        console.log("Decoded meta-address from registry:", decoded);
+        
+        // Improved cleaning method for the decoded string
+        let cleanedDecoded = decoded;
+        
+        // First attempt - use regex to remove common invisible characters
+        cleanedDecoded = decoded.replace(/^\s*[\u200B\u200C\u200D\u200E\u200F\uFEFF\u0000-\u001F]*/g, '');
+        
+        // If that didn't work (still has non-printable chars at start), try a more direct approach
+        if (cleanedDecoded.includes('st:lyx:') && !cleanedDecoded.startsWith('st:')) {
+          // Find the position of "st:lyx:" and extract from there
+          const stPrefix = cleanedDecoded.indexOf('st:lyx:');
+          if (stPrefix > -1) {
+            cleanedDecoded = cleanedDecoded.substring(stPrefix);
+          }
+        }
+        
+        // If we still have issues, try a character-by-character rebuild
+        if (!cleanedDecoded.startsWith('st:')) {
+          // Attempt to rebuild by keeping only printable characters
+          let rebuilt = '';
+          let foundPrefix = false;
+          
+          for (let i = 0; i < cleanedDecoded.length; i++) {
+            const char = cleanedDecoded[i];
+            // Once we find 's' check if we're at the start of our prefix
+            if (!foundPrefix && char === 's' && 
+                i+6 < cleanedDecoded.length && 
+                cleanedDecoded.substring(i, i+7) === 'st:lyx:') {
+              foundPrefix = true;
+              rebuilt = cleanedDecoded.substring(i); // Keep everything from here
+              break;
+            }
+          }
+          
+          if (foundPrefix) {
+            cleanedDecoded = rebuilt;
+          }
+        }
+        
+        console.log("Cleaned meta-address:", cleanedDecoded);
+        
+        if (cleanedDecoded && cleanedDecoded.length > 0) {
+          // Successfully found a meta-address in the registry
+          setIsAddressVerified(true);
+          setVerificationMessage('✅ Meta-address found in registry');
+          setVerifiedStealthMetaAddress(cleanedDecoded);
+          
+          // Check if it matches expected format, but don't fail if not
+          if (!cleanedDecoded.startsWith('st:')) {
+            console.warn("Meta-address from registry doesn't start with st: prefix:", cleanedDecoded);
+          }
+          
+          // Generate the one-time stealth address regardless of format
+          const stealthAddressResponse = generateStealthAddress({
+            stealthMetaAddressURI: cleanedDecoded,
+            schemeId: getSchemeIdValue()
+          });
+          
+          setGeneratedStealthAddress(stealthAddressResponse);
+        } else {
+          // Registry returned something but it couldn't be decoded properly
+          setIsAddressVerified(false);
+          setVerificationMessage('❌ Registry returned invalid data');
+          setVerifiedStealthMetaAddress('');
+          setGeneratedStealthAddress(null);
+        }
+      } else {
+        // No meta-address found in registry
+        setIsAddressVerified(false);
+        setVerificationMessage('❌ No stealth meta-address registered for this address');
+        setVerifiedStealthMetaAddress('');
+        setGeneratedStealthAddress(null);
+      }
+    } catch (error) {
+      console.error('Error verifying address:', error);
+      setIsAddressVerified(false);
+      setVerificationMessage('❌ Error checking registry: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      setVerifiedStealthMetaAddress('');
+      setGeneratedStealthAddress(null);
+    } finally {
+      setIsVerifyingAddress(false);
+    }
+  };
+
+  // Add debounced address verification
+  useEffect(() => {
+    if (recipientAddress.length >= 42) { // Length of a standard Ethereum address
+      const timerId = setTimeout(() => {
+        verifyRecipientAddress();
+      }, 500); // 500ms debounce
+      
+      return () => clearTimeout(timerId);
+    } else if (recipientAddress.length > 0) {
+      setVerificationMessage('Enter a complete Ethereum address');
+      setIsAddressVerified(false);
+    } else {
+      setVerificationMessage('');
+      setIsAddressVerified(false);
+    }
+  }, [recipientAddress]);
+
+  const handleStealthSend = async () => {
+    try {
+      setLoading({...loading, sendStealth: true});
+      setError(null);
+      
+      if (!isAddressVerified || !verifiedStealthMetaAddress || !generatedStealthAddress) {
+        throw new Error('Please verify the recipient address first');
+      }
+      
+      if (!sendAmount || parseFloat(sendAmount) <= 0) {
+        throw new Error('Invalid send amount');
+      }
+      
+      // Send the transaction to the pre-generated stealth address
+      const accounts = await getAccounts();
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No accounts connected');
+      }
+      
+      const walletClient = window.ethereum;
+      const txHash = await walletClient.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: accounts[0],
+          to: generatedStealthAddress.stealthAddress,
+          value: '0x' + parseEther(sendAmount).toString(16)
+        }]
+      });
+      
+      // Announce the stealth transaction
+      // Using the announcer contract directly
+      const announcerContract = {
+        address: LUKSO_MAINNET_ERC5564_ANNOUNCER as `0x${string}`,
+        abi: ERC5564_ANNOUNCER_ABI
+      };
+      
+      await walletClient.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: accounts[0],
+          to: announcerContract.address,
+          data: encodeFunctionData({
+            abi: announcerContract.abi,
+            functionName: 'announce',
+            args: [
+              getSchemeIdValue(),
+              generatedStealthAddress.stealthAddress,
+              generatedStealthAddress.ephemeralPublicKey,
+              '0x' // No metadata
+            ]
+          })
+        }]
+      });
+      
+      setSendTxHash(txHash);
+      setShowStealthSendModal(false);
+      
+      // Reset form
+      setRecipientAddress('');
+      setSendAmount('0.01');
+      setIsAddressVerified(false);
+      setVerificationMessage('');
+      setVerifiedStealthMetaAddress('');
+      setGeneratedStealthAddress(null);
+      
+      setLoading({...loading, sendStealth: false});
+    } catch (error) {
+      console.error('Error sending stealth transaction:', error);
+      handleError(error instanceof Error ? error.message : 'Error sending stealth transaction');
+      setLoading({...loading, sendStealth: false});
+    }
+  };
+
+  // Stealth Send Modal Component
+  const StealthSendModal = () => (
+    <div className="modal" style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: showStealthSendModal ? 'flex' : 'none',
+      justifyContent: 'center',
+      alignItems: 'center',
+      zIndex: 1000
+    }}>
+      <div className="modal-content" style={{
+        backgroundColor: 'white',
+        padding: '20px',
+        borderRadius: '8px',
+        width: '90%',
+        maxWidth: '500px',
+        maxHeight: '90vh',
+        overflow: 'auto'
+      }}>
+        <h2>Send Stealth Payment</h2>
+        <p>Send funds privately to a recipient's stealth address.</p>
+        
+        <div style={{ marginBottom: '20px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Recipient Address:
+          </label>
+          <div style={{ display: 'flex', gap: '10px', marginBottom: '5px' }}>
+            <input
+              type="text"
+              value={recipientAddress}
+              onChange={(e) => setRecipientAddress(e.target.value)}
+              placeholder="0x..."
+              style={{
+                flex: 1,
+                padding: '10px',
+                borderRadius: '4px',
+                border: '1px solid #ccc',
+                borderColor: isAddressVerified ? '#27ae60' : verificationMessage ? '#e74c3c' : '#ccc'
+              }}
+            />
+            <button
+              onClick={verifyRecipientAddress}
+              disabled={isVerifyingAddress || recipientAddress.length < 42}
+              style={{
+                padding: '10px 15px',
+                borderRadius: '4px',
+                border: 'none',
+                backgroundColor: isVerifyingAddress ? '#cccccc' : '#3498db',
+                color: 'white',
+                cursor: isVerifyingAddress || recipientAddress.length < 42 ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {isVerifyingAddress ? 'Checking...' : 'Verify'}
+            </button>
+          </div>
+          
+          {/* Verification message */}
+          {verificationMessage && (
+            <div style={{ 
+              marginTop: '5px', 
+              padding: '8px 10px', 
+              backgroundColor: isAddressVerified ? '#e6f7ef' : '#fce9e9', 
+              color: isAddressVerified ? '#27ae60' : '#e74c3c',
+              borderRadius: '4px',
+              fontSize: '14px'
+            }}>
+              {verificationMessage}
+              {isAddressVerified && verifiedStealthMetaAddress && (
+                <div style={{ 
+                  marginTop: '5px', 
+                  fontSize: '12px', 
+                  wordBreak: 'break-all',
+                  fontFamily: 'monospace',
+                  backgroundColor: '#f5f5f5',
+                  padding: '5px',
+                  borderRadius: '3px'
+                }}>
+                  Meta Address: {verifiedStealthMetaAddress}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Generated Stealth Address Section */}
+        {generatedStealthAddress && (
+          <div style={{ 
+            marginBottom: '20px',
+            padding: '10px',
+            backgroundColor: '#f0f7ff',
+            borderRadius: '4px',
+            border: '1px solid #c5d9f1'
+          }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '16px', color: '#2c3e50' }}>Generated Stealth Address</h3>
+            <p style={{ fontSize: '13px', marginBottom: '10px' }}>
+              A one-time stealth address has been generated for this recipient. This is where your payment will be sent.
+            </p>
+            
+            <div style={{ fontFamily: 'monospace', fontSize: '12px', margin: '5px 0' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>Address:</div>
+              <div style={{ 
+                wordBreak: 'break-all', 
+                backgroundColor: '#e8f0fe', 
+                padding: '5px', 
+                borderRadius: '3px' 
+              }}>
+                {generatedStealthAddress.stealthAddress}
+              </div>
+            </div>
+            
+            <div style={{ fontFamily: 'monospace', fontSize: '12px', margin: '5px 0' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>Ephemeral Public Key:</div>
+              <div style={{ 
+                wordBreak: 'break-all', 
+                backgroundColor: '#e8f0fe', 
+                padding: '5px', 
+                borderRadius: '3px' 
+              }}>
+                {generatedStealthAddress.ephemeralPublicKey}
+              </div>
+            </div>
+            
+            <div style={{ fontFamily: 'monospace', fontSize: '12px', margin: '5px 0' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '3px' }}>View Tag:</div>
+              <div style={{ 
+                backgroundColor: '#e8f0fe', 
+                padding: '5px', 
+                borderRadius: '3px' 
+              }}>
+                {generatedStealthAddress.viewTag}
+              </div>
+            </div>
+            
+            <p style={{ fontSize: '12px', marginTop: '10px', color: '#666' }}>
+              When you send payment, the transaction will be announced on-chain so the recipient can find it.
+            </p>
+          </div>
+        )}
+        
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Amount (LYX):
+          </label>
+          <input
+            type="number"
+            value={sendAmount}
+            onChange={(e) => setSendAmount(e.target.value)}
+            step="0.001"
+            min="0.001"
+            style={{
+              width: '100%',
+              padding: '10px',
+              borderRadius: '4px',
+              border: '1px solid #ccc'
+            }}
+          />
+        </div>
+        
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+          <button
+            onClick={() => {
+              setShowStealthSendModal(false);
+              setRecipientAddress('');
+              setSendAmount('0.01');
+              setIsAddressVerified(false);
+              setVerificationMessage('');
+              setVerifiedStealthMetaAddress('');
+              setGeneratedStealthAddress(null);
+            }}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: '#e74c3c',
+              color: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleStealthSend}
+            disabled={loading.sendStealth || !isAddressVerified || !generatedStealthAddress || !sendAmount}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '4px',
+              border: 'none',
+              backgroundColor: loading.sendStealth || !isAddressVerified || !generatedStealthAddress || !sendAmount ? '#cccccc' : '#3498db',
+              color: 'white',
+              cursor: loading.sendStealth || !isAddressVerified || !generatedStealthAddress || !sendAmount ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {loading.sendStealth ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="stealth-example">
       <h2>Stealth Addresses Workflow</h2>
@@ -953,19 +1382,44 @@ const IntegratedStealthExample = ({
         </ul>
       </div>
 
-      <div className="button-group">
+      <div className="button-group" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
         <button
-          className="bg-primary text-white p-2 rounded w-full disabled:opacity-50 mb-2"
+          className="bg-primary text-white p-2 rounded disabled:opacity-50"
           onClick={handleGenerateStealthAddress}
           disabled={loading.generateStealthAddress}
+          style={{ flex: 1 }}
         >
           {loading.generateStealthAddress ? 'Generating...' : 'Generate Stealth Address'}
+        </button>
+        <button
+          onClick={() => setShowStealthSendModal(true)}
+          disabled={!stealthMetaAddress}
+          type="button"
+          style={{ 
+            flex: 1,
+            padding: '8px 15px',
+            backgroundColor: !stealthMetaAddress ? '#cccccc' : '#27ae60',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: !stealthMetaAddress ? 'not-allowed' : 'pointer',
+            boxShadow: '0 0 0 2px #000'
+          }}
+        >
+          Send Stealth Payment
         </button>
         <button
           onClick={() => setShowWarningModal(true)}
           disabled={!stealthAddressDetails}
           type="button"
-          style={{ marginLeft: '10px', backgroundColor: !stealthAddressDetails ? '#cccccc' : '#e74c3c' }}
+          style={{ 
+            flex: 1,
+            backgroundColor: !stealthAddressDetails ? '#cccccc' : '#e74c3c',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: !stealthAddressDetails ? 'not-allowed' : 'pointer'
+          }}
         >
           Generate New Meta Address
         </button>
@@ -1319,6 +1773,8 @@ const IntegratedStealthExample = ({
       
       {/* Private Key Modal */}
       {showPrivateKeyModal && <PrivateKeyModal />}
+
+      <StealthSendModal />
 
       <style>
         {`
