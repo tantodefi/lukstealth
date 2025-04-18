@@ -63,7 +63,7 @@ const App = () => {
       <WagmiProvider config={config}>
         <div style={{ padding: '20px' }}>
           <div style={{ marginBottom: '20px', textAlign: 'center' }}>
-            <h1>Stealth Address SDK Examples</h1>
+            <h1>LukStealth</h1>
             {/* <button
               onClick={() => setShowOriginalExample(!showOriginalExample)}
               style={{
