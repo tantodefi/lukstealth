@@ -103,8 +103,23 @@ export const computeStealthKey = ({
   viewingPrivateKey: string 
 }) => {
   // In a real implementation, this would perform proper cryptographic operations
-  // This is just a demonstration
-  return `0x${spendingPrivateKey.slice(2, 10)}${viewingPrivateKey.slice(2, 10)}${ephemeralPublicKey.slice(2, 10)}`;
+  // This is just a demonstration for the UI
+
+  // Generate a valid private key format (64 hex chars with 0x prefix)
+  // Generate mostly deterministic output based on input keys while ensuring it's a valid format
+  const base = spendingPrivateKey.slice(2, 34) + viewingPrivateKey.slice(2, 34);
+  
+  // Ensure we have 64 characters (32 bytes) as required for a private key
+  let fullKey = base;
+  while (fullKey.length < 64) {
+    fullKey += ephemeralPublicKey.slice(2, 2 + (64 - fullKey.length));
+  }
+  
+  // Trim to exactly 64 hex characters and add 0x prefix
+  const trimmedKey = fullKey.slice(0, 64);
+  
+  // Return properly formatted key
+  return `0x${trimmedKey}`;
 };
 
 // Export VALID_SCHEME_ID for compatibility
