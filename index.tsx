@@ -1,11 +1,17 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import React, { useState } from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { WagmiProvider } from 'wagmi';
 import { http, createConfig } from 'wagmi';
-import { sepolia } from 'wagmi/chains';
-import IntegratedStealthExample from './components/integrated-stealth-example';
-import StealthActionsExample from './components/stealth-actions-example';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+
+// Import route components
+import Home from './routes/Home';
+import Send from './routes/Send';
+import Receive from './routes/Receive';
+import Withdraw from './routes/Withdraw';
+import DeveloperMode from './routes/DeveloperMode';
+import Layout from './components/Layout';
 
 // Add TypeScript declaration for import.meta.env
 declare global {
@@ -56,34 +62,20 @@ export const config = createConfig({
 const queryClient = new QueryClient();
 
 const App = () => {
-  const [showOriginalExample, setShowOriginalExample] = useState(false);
-
   return (
     <QueryClientProvider client={queryClient}>
       <WagmiProvider config={config}>
-        <div style={{ padding: '20px' }}>
-          <div style={{ marginBottom: '20px', textAlign: 'center' }}>
-            <h1>LukStealth</h1>
-            {/* <button
-              onClick={() => setShowOriginalExample(!showOriginalExample)}
-              style={{
-                padding: '10px 15px',
-                margin: '10px',
-                backgroundColor: '#3498db',
-                color: 'white',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer'
-              }}
-            >
-              {showOriginalExample
-                ? 'Show Integrated Example'
-                : 'Show Original Example'}
-            </button> */}
-          </div>
-
-          {showOriginalExample ? <StealthActionsExample /> : <IntegratedStealthExample />}
-        </div>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Home />} />
+              <Route path="/send" element={<Send />} />
+              <Route path="/receive" element={<Receive />} />
+              <Route path="/withdraw" element={<Withdraw />} />
+              <Route path="/developer-mode" element={<DeveloperMode />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
       </WagmiProvider>
     </QueryClientProvider>
   );
