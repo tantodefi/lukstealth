@@ -1334,11 +1334,15 @@ const Home = () => {
                       <div className="meta-address-container">
                         <p className="address-label">Stealth Meta Address</p>
                         <p className="address-value truncate">{gridOwnerMetaAddress}</p>
+                        <div className="meta-validation">
+                          <span className="validation-check">✅</span>
+                          <span className="validation-text">Found in registry: <a href={`https://explorer.lukso.network/address/${LUKSO_MAINNET_ERC5564_REGISTRY}`} target="_blank" rel="noopener noreferrer" className="registry-address">{LUKSO_MAINNET_ERC5564_REGISTRY}</a></span>
+                        </div>
                         <Link 
                           to={`/send?recipient=${encodeURIComponent(gridOwnerMetaAddress)}&name=${encodeURIComponent(gridOwnerProfile.name || 'Universal Profile')}`}
                           className="payment-button"
                         >
-                          Send Stealth Payment to {gridOwnerProfile.name || 'Universal Profile'}
+                          🥷 Send Stealth Payment to {gridOwnerProfile.name || 'Universal Profile'}
                         </Link>
                       </div>
                     ) : (
@@ -1616,36 +1620,63 @@ const Home = () => {
           text-overflow: ellipsis;
         }
         
-        .payment-button {
-          display: block;
-          margin-top: 1rem;
-          padding: 0.8rem 1.2rem;
+        .meta-address-container {
+          display: flex;
+          flex-direction: column;
+          margin-bottom: 1.2rem;
+        }
+        
+        .meta-address-container .payment-button {
+          display: inline-block;
+          margin: 1rem auto 0;
+          padding: 0.8rem 1.5rem;
           border: none;
-          background-color: #0066cc;
+          background-color: #28a745;
           color: white;
           border-radius: 6px;
           font-weight: 500;
           cursor: pointer;
           transition: background-color 0.2s;
-          width: 100%;
           text-align: center;
           text-decoration: none;
+          max-width: 90%;
+          align-self: center;
         }
         
         .payment-button:hover {
-          background-color: #0055aa;
+          background-color: #218838;
         }
         
-        .no-meta-container {
-          padding: 1rem;
-          background-color: #f8f9fa;
-          border-radius: 6px;
-          text-align: center;
+        .meta-validation {
+          display: flex;
+          align-items: center;
+          font-size: 0.85rem;
+          color: #28a745;
+          margin: 0.5rem 0;
+          padding: 0.4rem 0.6rem;
+          background-color: rgba(40, 167, 69, 0.1);
+          border-radius: 4px;
+          max-width: fit-content;
         }
         
-        .no-meta-text {
-          color: #888;
-          margin: 0;
+        .validation-check {
+          margin-right: 0.5rem;
+        }
+        
+        .validation-text {
+          color: #495057;
+        }
+        
+        .registry-address {
+          font-family: monospace;
+          font-size: 0.8rem;
+          color: #0066cc;
+          text-decoration: underline;
+          transition: color 0.2s;
+        }
+        
+        .registry-address:hover {
+          color: #0055aa;
         }
         
         .main-description {
@@ -1857,6 +1888,18 @@ const Home = () => {
           text-align: center;
           color: #666;
           box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        
+        .no-meta-container {
+          padding: 1rem;
+          background-color: #f8f9fa;
+          border-radius: 6px;
+          text-align: center;
+        }
+        
+        .no-meta-text {
+          color: #888;
+          margin: 0;
         }
         
         /* Media Queries */
