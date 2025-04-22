@@ -524,210 +524,509 @@ const Receive = () => {
   };
 
   return (
-    <div style={{ padding: '40px 20px', maxWidth: '800px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '20px', textAlign: 'center' }}>Receive Funds</h1>
-      
-      <p style={{ marginBottom: '30px', textAlign: 'center' }}>
-        Generate and share your stealth meta-address to receive private payments.
-      </p>
-      
-      {/* Show LUKSO UP connection status */}
-      <div style={{ 
-        backgroundColor: isLuksoUP ? '#e8f5e9' : '#fff3e0', 
-        color: isLuksoUP ? '#2e7d32' : '#e65100', 
-        padding: '10px', 
-        borderRadius: '4px', 
-        marginBottom: '20px',
-        textAlign: 'center',
-        fontSize: '0.9rem'
-      }}>
-        {connectionMessage}
-        
-        {isLuksoUP && upAccounts.length > 0 && controllers.length > 0 && (
-          <div style={{ 
-            marginTop: '8px', 
-            fontSize: '0.8rem',
-            opacity: 0.8 
-          }}>
-            Controllers found: {controllers.length}
-          </div>
-        )}
+    <div className="page-container">
+      <div className="banner">
+        <h1 className="heading">Generate Stealth Address</h1>
+        <p>Set up your stealth meta-address to receive private payments</p>
       </div>
-      
-      <div style={{ 
-        backgroundColor: '#f8f9fa', 
-        padding: '30px', 
-        borderRadius: '8px',
-        marginBottom: '30px'
-      }}>
-        <h2 style={{ fontSize: '1.3rem', marginBottom: '20px', textAlign: 'center' }}>
-          Your Stealth Meta-Address
-        </h2>
-        
-        {error && (
-          <div style={{ 
-            backgroundColor: '#f8d7da', 
-            color: '#721c24', 
-            padding: '10px', 
-            borderRadius: '4px', 
-            marginBottom: '15px',
-            textAlign: 'center'
-          }}>
-            {error}
+
+      <div className="home-container">
+        <div className="status-section">
+          <h2>Wallet Connection Status</h2>
+          <div className="status-card">
+            <div className="status-content">
+              <div className="status-info">
+                <p>Status: <span className={isLuksoUP ? "status-available" : "status-unavailable"}>
+                  {connectionMessage}
+                </span></p>
+              </div>
+            </div>
           </div>
-        )}
+          {controllers.length > 0 && (
+            <div className="controllers-info">
+              Controllers found: {controllers.length}
+            </div>
+          )}
+        </div>
         
-        {!stealthMetaAddress ? (
-          <button 
-            onClick={handleGenerateMetaAddress}
-            disabled={isGenerating}
-            style={{
-              backgroundColor: '#2ecc71',
-              color: 'white',
-              padding: '12px 24px',
-              borderRadius: '4px',
-              border: 'none',
-              cursor: isGenerating ? 'default' : 'pointer',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              display: 'block',
-              margin: '0 auto',
-              opacity: isGenerating ? 0.7 : 1,
-            }}
-          >
-            {isGenerating ? 'Generating...' : 'Generate Stealth Meta-Address'}
-          </button>
-        ) : (
-          <>
-            <div style={{
-              backgroundColor: 'white',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              padding: '12px',
-              wordBreak: 'break-all',
-              marginBottom: '15px',
-              fontSize: '0.9rem'
-            }}>
-              {stealthMetaAddress}
+        <div className="meta-address-section">
+          <h2>Your Stealth Meta-Address</h2>
+          
+          {error && (
+            <div className="error-container">
+              <p className="error-message">{error}</p>
+            </div>
+          )}
+          
+          {!stealthMetaAddress ? (
+            <button 
+              onClick={handleGenerateMetaAddress}
+              disabled={isGenerating}
+              className="generate-button"
+            >
+              {isGenerating ? (
+                <>
+                  <span className="spinner"></span>
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <>🔑 Generate Stealth Meta-Address</>
+              )}
+            </button>
+          ) : (
+            <>
+              <div className="address-display">
+                {stealthMetaAddress}
+              </div>
+              
+              <button
+                onClick={handleCopyAddress}
+                className={`copy-address-button ${isCopied ? 'copied' : ''}`}
+              >
+                {isCopied ? '✓ Copied!' : '📋 Copy to Clipboard'}
+              </button>
+            </>
+          )}
+        </div>
+        
+        {showOptionalSteps && (
+          <div className="optional-steps">
+            <h2>Optional Steps</h2>
+            
+            <div className="step-section">
+              <h3>1. Register in the Registry Contract</h3>
+              <p>
+                Register your stealth meta-address in the on-chain registry so others can easily find it.
+              </p>
+              
+              {registrationStatus && (
+                <div className={`status-message ${registrationStatus.includes('failed') ? 'error' : 'success'}`}>
+                  {registrationStatus}
+                </div>
+              )}
+              
+              <button
+                onClick={registerMetaAddress}
+                disabled={isRegistering || !stealthMetaAddress}
+                className="action-button register-button"
+              >
+                {isRegistering ? (
+                  <>
+                    <span className="spinner"></span>
+                    <span>Registering...</span>
+                  </>
+                ) : (
+                  'Register Meta-Address'
+                )}
+              </button>
             </div>
             
-            <button
-              onClick={handleCopyAddress}
-              style={{
-                backgroundColor: isCopied ? '#2ecc71' : '#3498db',
-                color: 'white',
-                padding: '10px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '0.9rem',
-                display: 'block',
-                margin: '0 auto',
-                transition: 'background-color 0.3s'
-              }}
-            >
-              {isCopied ? 'Copied!' : 'Copy to Clipboard'}
-            </button>
-          </>
+            <div className="step-section">
+              <h3>2. Announce Stealth Address</h3>
+              <p>
+                Announce a stealth address to the network for test purposes.
+              </p>
+              
+              {announcementStatus && (
+                <div className={`status-message ${announcementStatus.includes('failed') ? 'error' : 'success'}`}>
+                  {announcementStatus}
+                </div>
+              )}
+              
+              <button
+                onClick={announceStealthAddress}
+                disabled={isAnnouncing || !stealthAddress}
+                className="action-button announce-button"
+              >
+                {isAnnouncing ? (
+                  <>
+                    <span className="spinner"></span>
+                    <span>Announcing...</span>
+                  </>
+                ) : (
+                  'Announce Stealth Address'
+                )}
+              </button>
+            </div>
+          </div>
         )}
-      </div>
-      
-      {showOptionalSteps && (
-        <div style={{ 
-          backgroundColor: '#f8f9fa', 
-          padding: '30px', 
-          borderRadius: '8px',
-          marginBottom: '30px'
-        }}>
-          <h2 style={{ fontSize: '1.3rem', marginBottom: '20px', textAlign: 'center' }}>
-            Optional Steps
-          </h2>
-          
-          <div style={{ marginBottom: '20px' }}>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '10px' }}>1. Register in the Registry Contract</h3>
-            <p style={{ marginBottom: '15px', fontSize: '0.9rem' }}>
-              Register your stealth meta-address in the on-chain registry so others can easily find it.
-            </p>
-            
-            {registrationStatus && (
-              <div style={{ 
-                backgroundColor: registrationStatus.includes('failed') ? '#f8d7da' : '#d4edda', 
-                color: registrationStatus.includes('failed') ? '#721c24' : '#155724', 
-                padding: '10px', 
-                borderRadius: '4px', 
-                marginBottom: '15px',
-                fontSize: '0.9rem'
-              }}>
-                {registrationStatus}
-              </div>
-            )}
-            
-            <button
-              onClick={registerMetaAddress}
-              disabled={isRegistering || !stealthMetaAddress}
-              style={{
-                backgroundColor: '#3498db',
-                color: 'white',
-                padding: '10px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                cursor: isRegistering || !stealthMetaAddress ? 'default' : 'pointer',
-                fontSize: '0.9rem',
-                display: 'block',
-                margin: '0 auto',
-                opacity: isRegistering || !stealthMetaAddress ? 0.7 : 1,
-              }}
-            >
-              {isRegistering ? 'Registering...' : 'Register Meta-Address'}
-            </button>
-          </div>
-          
-          <div>
-            <h3 style={{ fontSize: '1.1rem', marginBottom: '10px' }}>2. Announce Stealth Address</h3>
-            <p style={{ marginBottom: '15px', fontSize: '0.9rem' }}>
-              Announce a stealth address to the network for test purposes.
-            </p>
-            
-            {announcementStatus && (
-              <div style={{ 
-                backgroundColor: announcementStatus.includes('failed') ? '#f8d7da' : '#d4edda', 
-                color: announcementStatus.includes('failed') ? '#721c24' : '#155724', 
-                padding: '10px', 
-                borderRadius: '4px', 
-                marginBottom: '15px',
-                fontSize: '0.9rem'
-              }}>
-                {announcementStatus}
-              </div>
-            )}
-            
-            <button
-              onClick={announceStealthAddress}
-              disabled={isAnnouncing || !stealthAddress}
-              style={{
-                backgroundColor: '#3498db',
-                color: 'white',
-                padding: '10px 20px',
-                borderRadius: '4px',
-                border: 'none',
-                cursor: isAnnouncing || !stealthAddress ? 'default' : 'pointer',
-                fontSize: '0.9rem',
-                display: 'block',
-                margin: '0 auto',
-                opacity: isAnnouncing || !stealthAddress ? 0.7 : 1,
-              }}
-            >
-              {isAnnouncing ? 'Announcing...' : 'Announce Stealth Address'}
-            </button>
-          </div>
+        
+        <div className="navigation-links">
+          <Link to="/" className="back-link">
+            ← Back to Home
+          </Link>
         </div>
-      )}
-      
-      <div style={{ marginTop: '30px', textAlign: 'center' }}>
-        <Link to="/" style={{ color: '#3498db', textDecoration: 'none' }}>
-          ← Back to Home
-        </Link>
       </div>
+      
+      <style>{`
+        .page-container {
+          width: 100%;
+          max-width: 100%;
+          margin: 0;
+          padding: 0;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        .banner {
+          background-color: #000;
+          color: white;
+          padding: 3rem 2rem;
+          text-align: center;
+          margin-bottom: 2rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        
+        .banner h1 {
+          font-size: 2.5rem;
+          margin: 0 0 1rem 0;
+          font-weight: 700;
+        }
+        
+        .banner p {
+          font-size: 1.2rem;
+          margin: 0;
+          opacity: 0.9;
+        }
+        
+        .home-container {
+          max-width: 900px;
+          margin: 0 auto 4rem;
+          padding: 0 1.5rem;
+        }
+        
+        .status-section {
+          margin-bottom: 2rem;
+        }
+        
+        .status-section h2 {
+          font-size: 1.5rem;
+          margin: 0 0 1rem 0;
+          color: #333;
+        }
+        
+        .status-card {
+          background: white;
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+          padding: 1.5rem;
+        }
+        
+        .status-content {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        
+        .status-info p {
+          margin: 0.5rem 0;
+          font-size: 0.95rem;
+          color: #666;
+        }
+        
+        .status-available {
+          color: #28a745;
+          font-weight: 500;
+        }
+        
+        .status-unavailable {
+          color: #dc3545;
+          font-weight: 500;
+        }
+        
+        .controllers-info {
+          margin-top: 0.5rem;
+          font-size: 0.9rem;
+          color: #666;
+          padding: 0.5rem;
+          background-color: #f8f9fa;
+          border-radius: 4px;
+        }
+        
+        .meta-address-section {
+          background-color: white;
+          padding: 2rem;
+          border-radius: 12px;
+          margin-bottom: 2rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        
+        .meta-address-section h2 {
+          font-size: 1.5rem;
+          margin: 0 0 1.5rem 0;
+          color: #333;
+          text-align: center;
+        }
+        
+        .error-container {
+          padding: 1.2rem;
+          background: #fff8f8;
+          border-left: 4px solid #dc3545;
+          border-radius: 4px;
+          margin-bottom: 1.5rem;
+        }
+        
+        .error-message {
+          color: #dc3545;
+          margin: 0;
+          font-size: 0.95rem;
+        }
+        
+        .generate-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 1rem 1.5rem;
+          border: none;
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+          color: white;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 1.1rem;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          max-width: 90%;
+          margin: 1rem auto;
+          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+          position: relative;
+          overflow: hidden;
+          z-index: 1;
+        }
+        
+        .generate-button:before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+          opacity: 0;
+          z-index: -1;
+          transition: opacity 0.3s ease;
+        }
+        
+        .generate-button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
+        }
+        
+        .generate-button:hover:not(:disabled):before {
+          opacity: 1;
+        }
+        
+        .generate-button:active:not(:disabled) {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
+        }
+        
+        .generate-button:disabled {
+          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
+          cursor: not-allowed;
+          box-shadow: none;
+          opacity: 0.7;
+        }
+        
+        .spinner {
+          display: inline-block;
+          width: 1rem;
+          height: 1rem;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-radius: 50%;
+          border-top-color: white;
+          animation: spin 1s ease-in-out infinite;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .address-display {
+          background-color: #f8f9fa;
+          border: 1px solid #e9ecef;
+          border-radius: 8px;
+          padding: 1rem;
+          word-break: break-all;
+          margin-bottom: 1.5rem;
+          font-family: monospace;
+          font-size: 0.9rem;
+          color: #495057;
+        }
+        
+        .copy-address-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 0.8rem 1.5rem;
+          border: none;
+          background: linear-gradient(135deg, #0066cc 0%, #3498db 100%);
+          color: white;
+          border-radius: 8px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          margin: 0 auto;
+          box-shadow: 0 4px 10px rgba(0, 102, 204, 0.3);
+        }
+        
+        .copy-address-button:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(0, 102, 204, 0.4);
+        }
+        
+        .copy-address-button:active {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(0, 102, 204, 0.3);
+        }
+        
+        .copy-address-button.copied {
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+        }
+        
+        .optional-steps {
+          background-color: white;
+          padding: 2rem;
+          border-radius: 12px;
+          margin-bottom: 2rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        
+        .optional-steps h2 {
+          font-size: 1.5rem;
+          margin: 0 0 1.5rem 0;
+          color: #333;
+          text-align: center;
+        }
+        
+        .step-section {
+          margin-bottom: 2rem;
+          padding-bottom: 2rem;
+          border-bottom: 1px solid #e9ecef;
+        }
+        
+        .step-section:last-child {
+          margin-bottom: 0;
+          padding-bottom: 0;
+          border-bottom: none;
+        }
+        
+        .step-section h3 {
+          font-size: 1.2rem;
+          margin: 0 0 1rem 0;
+          color: #333;
+        }
+        
+        .step-section p {
+          margin: 0 0 1.5rem 0;
+          color: #666;
+          line-height: 1.5;
+        }
+        
+        .status-message {
+          padding: 1rem;
+          border-radius: 8px;
+          margin-bottom: 1.5rem;
+          font-size: 0.9rem;
+        }
+        
+        .status-message.success {
+          background-color: rgba(40, 167, 69, 0.1);
+          color: #28a745;
+          border-left: 4px solid #28a745;
+        }
+        
+        .status-message.error {
+          background-color: rgba(220, 53, 69, 0.1);
+          color: #dc3545;
+          border-left: 4px solid #dc3545;
+        }
+        
+        .action-button {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 0.8rem 1.5rem;
+          border: none;
+          color: white;
+          border-radius: 8px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          margin: 0 auto;
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .action-button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(0, 0, 0, 0.25);
+        }
+        
+        .action-button:active:not(:disabled) {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+        }
+        
+        .action-button:disabled {
+          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
+          cursor: not-allowed;
+          box-shadow: none;
+          opacity: 0.7;
+        }
+        
+        .register-button {
+          background: linear-gradient(135deg, #0066cc 0%, #3498db 100%);
+        }
+        
+        .announce-button {
+          background: linear-gradient(135deg, #f39c12 0%, #ffc107 100%);
+        }
+        
+        .navigation-links {
+          display: flex;
+          justify-content: space-between;
+          margin-top: 2rem;
+        }
+        
+        .back-link {
+          color: #0066cc;
+          text-decoration: none;
+          font-weight: 500;
+          transition: color 0.2s, transform 0.2s;
+          display: inline-block;
+        }
+        
+        .back-link:hover {
+          color: #0055aa;
+          text-decoration: underline;
+          transform: translateX(-3px);
+        }
+        
+        @media (max-width: 768px) {
+          .banner {
+            padding: 2rem 1rem;
+          }
+          
+          .banner h1 {
+            font-size: 2rem;
+          }
+          
+          .meta-address-section,
+          .optional-steps {
+            padding: 1.5rem;
+          }
+          
+          .generate-button,
+          .copy-address-button,
+          .action-button {
+            width: 100%;
+          }
+        }
+      `}</style>
     </div>
   );
 };

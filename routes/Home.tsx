@@ -65,6 +65,19 @@ const BACKUP_RPC_URLS = [
 // IPFS Gateway
 const IPFS_GATEWAY = 'https://api.universalprofile.cloud/ipfs/';
 
+// Interface for BurnerWallet address objects
+interface StealthAddressInfo {
+  address: string;
+  type: 'stealth' | 'meta';
+  balance?: string;
+  ephemeralPublicKey?: string;
+  privateKey?: string;
+  viewingKey?: string;
+  spendingKey?: string;
+  timestamp: number;
+  name?: string;
+}
+
 // Add a utility function to directly access contextAccounts through DOM inspection - critical for incognito mode
 const getContextAccountsFromDOM = (): string[] => {
   try {
@@ -118,10 +131,30 @@ const Home = () => {
   const [gridOwnerProfile, setGridOwnerProfile] = useState<UPProfile | null>(null);
   const [showGridOwnerCard, setShowGridOwnerCard] = useState<boolean>(true);
 
+  // State for wallet menu
+  const [isWalletMenuOpen, setIsWalletMenuOpen] = useState<boolean>(false);
+  const [savedAddresses, setSavedAddresses] = useState<StealthAddressInfo[]>([]);
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [selectedAddress, setSelectedAddress] = useState<StealthAddressInfo | null>(null);
+  const [addressBalances, setAddressBalances] = useState<{[address: string]: string}>({});
+  const walletMenuRef = useRef<HTMLDivElement>(null);
+  
+  // State for showing full addresses/keys
+  const [visibleFullAddresses, setVisibleFullAddresses] = useState<{[key: string]: boolean}>({});
+  const [copyNotification, setCopyNotification] = useState<string | null>(null);
+  
   // Helper function to truncate addresses for display
   const truncateAddress = (address: string): string => {
     if (!address) return '';
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
+
+  // Toggle visibility of full address/key
+  const toggleAddressVisibility = (key: string) => {
+    setVisibleFullAddresses(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
   };
 
   // Get direct reference to UP provider - similar to the reference implementation
@@ -284,7 +317,7 @@ const Home = () => {
           console.log('Found contextAccounts in delayed check:', window.lukso.contextAccounts);
           const contextAccount = window.lukso.contextAccounts[0];
           
-          setGridOwner(contextAccount);
+      setGridOwner(contextAccount);
         fetchGridOwnerProfile(contextAccount);
         fetchGridOwnerMetaAddress(contextAccount);
           setIsLoadingGridOwner(false);
@@ -296,7 +329,7 @@ const Home = () => {
     }, 500);
     
     // Clean up the interval after 10 seconds regardless
-    setTimeout(() => {
+      setTimeout(() => {
       clearInterval(checkLuksoInterval);
     }, 10000);
     
@@ -387,7 +420,7 @@ const Home = () => {
           setGridOwner(contextAccount);
           fetchGridOwnerProfile(contextAccount);
           fetchGridOwnerMetaAddress(contextAccount);
-          setIsLoadingGridOwner(false);
+    setIsLoadingGridOwner(false);
           setShowGridOwnerCard(true);
         }
       }
@@ -431,7 +464,7 @@ const Home = () => {
       try {
         console.log('LUKSTEALTH: Requesting URL_INFO from parent frame');
         window.parent.postMessage({ type: 'GET_URL_INFO' }, '*');
-      } catch (error) {
+        } catch (error) {
         console.error('LUKSTEALTH: Error requesting URL_INFO from parent:', error);
       }
     }
@@ -1078,18 +1111,18 @@ const Home = () => {
               avatar: '',
               description: 'No profile information available'
             });
-        }
+          }
       } catch (error) {
       console.error('Error fetching profile:', error);
-        
+          
       // Default profile on error
-        setGridOwnerProfile({
-          name: 'LUKSO User',
-          avatar: '',
+          setGridOwnerProfile({
+            name: 'LUKSO User',
+            avatar: '',
         description: 'Error loading profile'
-        });
+          });
     } finally {
-        setIsLoadingGridOwner(false);
+          setIsLoadingGridOwner(false);
       setIsImageLoading(false);
     }
   };
@@ -1273,8 +1306,488 @@ const Home = () => {
     }
   }, [gridOwner]);
 
+  // Effect to close wallet menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (walletMenuRef.current && !walletMenuRef.current.contains(event.target as Node) && 
+          !(event.target as HTMLElement)?.closest('.wallet-icon-button')) {
+        setIsWalletMenuOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+  
+  // Load saved addresses from localStorage
+  useEffect(() => {
+    const loadSavedAddresses = () => {
+      try {
+        // Load all relevant addresses from localStorage
+        const addresses: StealthAddressInfo[] = [];
+        
+        // Check for stealth addresses
+        const stealthAddressDetails = localStorage.getItem('stealthAddressDetails');
+        if (stealthAddressDetails) {
+          try {
+            const details = JSON.parse(stealthAddressDetails);
+            if (details.stealthAddress) {
+              addresses.push({
+                address: details.stealthAddress,
+                type: 'stealth',
+                ephemeralPublicKey: details.ephemeralPublicKey,
+                timestamp: Date.now(),
+                name: 'My Stealth Address'
+              });
+            }
+          } catch (e) {
+            console.error('Failed to parse stealth address details:', e);
+          }
+        }
+        
+        // Check for meta address
+        const metaAddress = localStorage.getItem('stealthMetaAddress');
+        if (metaAddress) {
+          addresses.push({
+            address: metaAddress,
+            type: 'meta',
+            timestamp: Date.now() - 1000, // Slightly older than stealth address
+            name: 'My Stealth Meta-Address'
+          });
+        }
+        
+        // Check for keys
+        const stealthKeys = localStorage.getItem('stealthKeys');
+        const stealthPrivateKey = localStorage.getItem('stealthPrivateKey');
+        const viewingKey = localStorage.getItem('stealthViewingKey');
+        const spendingKey = localStorage.getItem('stealthSpendingKey');
+        
+        // Assign keys to appropriate addresses
+        if (stealthKeys || stealthPrivateKey || viewingKey || spendingKey) {
+          const updatedAddresses = addresses.map(addr => {
+            if (addr.type === 'stealth' && stealthPrivateKey) {
+              return {...addr, privateKey: stealthPrivateKey};
+            }
+            if (addr.type === 'meta' && stealthKeys) {
+              try {
+                const keys = JSON.parse(stealthKeys);
+                return {
+                  ...addr, 
+                  viewingKey: keys.viewingPrivateKey, 
+                  spendingKey: keys.spendingPrivateKey
+                };
+              } catch (e) {
+                console.error('Failed to parse stealth keys:', e);
+              }
+            }
+            if (viewingKey && addr.type === 'meta') {
+              return {...addr, viewingKey};
+            }
+            if (spendingKey && addr.type === 'meta') {
+              return {...addr, spendingKey};
+            }
+            return addr;
+          });
+          
+          setSavedAddresses(updatedAddresses);
+        } else {
+          setSavedAddresses(addresses);
+        }
+      } catch (err) {
+        console.error('Error loading addresses from localStorage:', err);
+      }
+    };
+    
+    loadSavedAddresses();
+    
+    // Setup an interval to refresh the address list every 30 seconds
+    const intervalId = setInterval(loadSavedAddresses, 30000);
+    
+    return () => clearInterval(intervalId);
+  }, []);
+  
+  // Effect to fetch balances for saved addresses
+  useEffect(() => {
+    const fetchBalances = async () => {
+      if (savedAddresses.length === 0) return;
+      
+      const publicClient = createPublicClient({
+        chain: lukso,
+        transport: http(RPC_URL)
+      });
+      
+      const newBalances: {[address: string]: string} = {};
+      
+      for (const addrInfo of savedAddresses) {
+        try {
+          if (addrInfo.address.startsWith('0x')) {
+            const balance = await publicClient.getBalance({
+              address: addrInfo.address as `0x${string}`
+            }).catch(error => {
+              console.warn(`Error fetching balance for ${addrInfo.address}:`, error);
+              return BigInt(0);
+            });
+            
+            // Convert balance from wei to LYX
+            const balanceInLYX = parseFloat(balance.toString()) / 1e18;
+            newBalances[addrInfo.address] = balanceInLYX.toFixed(4) + ' LYX';
+          }
+        } catch (error) {
+          console.error(`Error fetching balance for ${addrInfo.address}:`, error);
+          newBalances[addrInfo.address] = '0.0000 LYX';
+        }
+      }
+      
+      setAddressBalances(newBalances);
+    };
+    
+    fetchBalances();
+  }, [savedAddresses]);
+  
+  // Copy address to clipboard
+  const copyToClipboard = (text: string, type: string = 'address') => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        setCopiedAddress(text);
+        setCopyNotification(`${type} copied to clipboard!`);
+        setTimeout(() => {
+          setCopiedAddress(null);
+          setCopyNotification(null);
+        }, 2000);
+      })
+      .catch(err => {
+        console.error('Failed to copy:', err);
+        setCopyNotification('Failed to copy to clipboard');
+        setTimeout(() => setCopyNotification(null), 2000);
+      });
+  };
+  
+  // Remove address from localStorage and state
+  const removeAddress = (address: string, type: 'stealth' | 'meta') => {
+    try {
+      if (type === 'stealth') {
+        localStorage.removeItem('stealthAddressDetails');
+        localStorage.removeItem('stealthPrivateKey');
+      } else if (type === 'meta') {
+        localStorage.removeItem('stealthMetaAddress');
+        localStorage.removeItem('stealthKeys');
+      }
+      
+      setSavedAddresses(savedAddresses.filter(a => a.address !== address));
+      
+      // If we removed all addresses, close the detail view
+      if (selectedAddress?.address === address) {
+        setSelectedAddress(null);
+      }
+    } catch (err) {
+      console.error('Error removing address:', err);
+    }
+  };
+
   return (
     <div className="page-container">
+      {/* Wallet Menu Button */}
+      <div 
+        className="wallet-icon-button"
+        onClick={() => setIsWalletMenuOpen(!isWalletMenuOpen)}
+      >
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M19 7h-9.5V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h14z"></path>
+          <path d="M16 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path>
+        </svg>
+      </div>
+      
+      {/* Wallet Sidebar Menu */}
+      {isWalletMenuOpen && (
+        <div className="wallet-menu" ref={walletMenuRef}>
+          <div className="wallet-menu-header">
+            <h2>Stealth Wallet</h2>
+            <button 
+              className="close-button"
+              onClick={() => setIsWalletMenuOpen(false)}
+            >
+              ×
+            </button>
+          </div>
+          
+          {/* Copy notification */}
+          {copyNotification && (
+            <div className="copy-notification">
+              {copyNotification}
+            </div>
+          )}
+          
+          <div className="wallet-content">
+            {savedAddresses.length === 0 ? (
+              <div className="no-addresses">
+                <p>No saved addresses found</p>
+                <p className="help-text">
+                  Generate a stealth address in the <Link to="/receive" className="inline-link">Receive</Link> section
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Address List Section */}
+                <div className="address-list-section">
+                  <h3>Your Addresses</h3>
+                  <div className="address-list">
+                    {savedAddresses.map((addrInfo) => (
+                      <div 
+                        key={addrInfo.address} 
+                        className={`address-item ${selectedAddress?.address === addrInfo.address ? 'selected' : ''}`}
+                        onClick={() => setSelectedAddress(addrInfo)}
+                      >
+                        <div className="address-icon">
+                          {addrInfo.type === 'stealth' ? '🥷' : '📡'}
+                        </div>
+                        <div className="address-info">
+                          <div className="address-name">{addrInfo.name || (addrInfo.type === 'stealth' ? 'Stealth Address' : 'Meta-Address')}</div>
+                          <div className="address-value">
+                            {visibleFullAddresses[addrInfo.address] ? addrInfo.address : truncateAddress(addrInfo.address)}
+                            <button 
+                              className="visibility-toggle" 
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleAddressVisibility(addrInfo.address);
+                              }}
+                              title={visibleFullAddresses[addrInfo.address] ? "Hide full address" : "Show full address"}
+                            >
+                              {visibleFullAddresses[addrInfo.address] ? '👁️' : '👁️‍🗨️'}
+                            </button>
+                          </div>
+                          {addressBalances[addrInfo.address] && (
+                            <div className="address-balance">
+                              {addressBalances[addrInfo.address]}
+                            </div>
+                          )}
+                        </div>
+                        <div className="address-actions">
+                          <button 
+                            className="copy-button" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              copyToClipboard(addrInfo.address, 'Address');
+                            }}
+                            title="Copy address"
+                          >
+                            {copiedAddress === addrInfo.address ? '✓' : '📋'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Address Detail View */}
+                {selectedAddress && (
+                  <div className="address-detail">
+                    <h3>Address Details</h3>
+                    <div className="detail-card">
+                      <div className="detail-header">
+                        <div className="detail-type-badge">
+                          {selectedAddress.type === 'stealth' ? 'Stealth Address' : 'Meta-Address'}
+                        </div>
+                        <button 
+                          className="remove-button"
+                          onClick={() => removeAddress(selectedAddress.address, selectedAddress.type)}
+                          title="Remove address"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                      
+                      <div className="detail-content">
+                        <div className="detail-item">
+                          <span className="detail-label">Address:</span>
+                          <div className="detail-value-row">
+                            <span className="detail-value address-text">
+                              {visibleFullAddresses[`address_${selectedAddress.address}`] 
+                               ? selectedAddress.address 
+                               : truncateAddress(selectedAddress.address)}
+                            </span>
+                            <button 
+                              className="visibility-toggle" 
+                              onClick={() => toggleAddressVisibility(`address_${selectedAddress.address}`)}
+                              title={visibleFullAddresses[`address_${selectedAddress.address}`] ? "Hide full address" : "Show full address"}
+                            >
+                              {visibleFullAddresses[`address_${selectedAddress.address}`] ? '👁️' : '👁️‍🗨️'}
+                            </button>
+                            <button 
+                              className="copy-button-sm" 
+                              onClick={() => copyToClipboard(selectedAddress.address, 'Address')}
+                              title="Copy address"
+                            >
+                              {copiedAddress === selectedAddress.address ? '✓' : '📋'}
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {selectedAddress.type === 'stealth' && selectedAddress.ephemeralPublicKey && (
+                          <div className="detail-item">
+                            <span className="detail-label">Ephemeral Key:</span>
+                            <div className="detail-value-row">
+                              <span className="detail-value key-text">
+                                {visibleFullAddresses[`ephemeral_${selectedAddress.address}`] 
+                                 ? selectedAddress.ephemeralPublicKey 
+                                 : truncateAddress(selectedAddress.ephemeralPublicKey || '')}
+                              </span>
+                              <button 
+                                className="visibility-toggle" 
+                                onClick={() => toggleAddressVisibility(`ephemeral_${selectedAddress.address}`)}
+                                title={visibleFullAddresses[`ephemeral_${selectedAddress.address}`] ? "Hide full key" : "Show full key"}
+                              >
+                                {visibleFullAddresses[`ephemeral_${selectedAddress.address}`] ? '👁️' : '👁️‍🗨️'}
+                              </button>
+                              <button 
+                                className="copy-button-sm" 
+                                onClick={() => copyToClipboard(selectedAddress.ephemeralPublicKey || '', 'Ephemeral key')}
+                                title="Copy key"
+                              >
+                                {copiedAddress === selectedAddress.ephemeralPublicKey ? '✓' : '📋'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Balance display */}
+                        {addressBalances[selectedAddress.address] && (
+                          <div className="detail-item">
+                            <span className="detail-label">Balance:</span>
+                            <span className="detail-value balance-text">{addressBalances[selectedAddress.address]}</span>
+                          </div>
+                        )}
+                        
+                        {selectedAddress.privateKey && (
+                          <div className="detail-item">
+                            <span className="detail-label">Private Key:</span>
+                            <div className="detail-value-row">
+                              <span className="detail-value key-text">
+                                {visibleFullAddresses[`private_${selectedAddress.address}`] 
+                                 ? selectedAddress.privateKey 
+                                 : truncateAddress(selectedAddress.privateKey || '')}
+                              </span>
+                              <button 
+                                className="visibility-toggle" 
+                                onClick={() => toggleAddressVisibility(`private_${selectedAddress.address}`)}
+                                title={visibleFullAddresses[`private_${selectedAddress.address}`] ? "Hide full key" : "Show full key"}
+                              >
+                                {visibleFullAddresses[`private_${selectedAddress.address}`] ? '👁️' : '👁️‍🗨️'}
+                              </button>
+                              <button 
+                                className="copy-button-sm" 
+                                onClick={() => copyToClipboard(selectedAddress.privateKey || '', 'Private key')}
+                                title="Copy private key"
+                              >
+                                {copiedAddress === selectedAddress.privateKey ? '✓' : '📋'}
+                              </button>
+                            </div>
+                            <div className="key-warning">Keep this private! Anyone with this key can access the funds.</div>
+                          </div>
+                        )}
+                        
+                        {selectedAddress.viewingKey && (
+                          <div className="detail-item">
+                            <span className="detail-label">Viewing Key:</span>
+                            <div className="detail-value-row">
+                              <span className="detail-value key-text">
+                                {visibleFullAddresses[`viewing_${selectedAddress.address}`] 
+                                 ? selectedAddress.viewingKey 
+                                 : truncateAddress(selectedAddress.viewingKey || '')}
+                              </span>
+                              <button 
+                                className="visibility-toggle" 
+                                onClick={() => toggleAddressVisibility(`viewing_${selectedAddress.address}`)}
+                                title={visibleFullAddresses[`viewing_${selectedAddress.address}`] ? "Hide full key" : "Show full key"}
+                              >
+                                {visibleFullAddresses[`viewing_${selectedAddress.address}`] ? '👁️' : '👁️‍🗨️'}
+                              </button>
+                              <button 
+                                className="copy-button-sm" 
+                                onClick={() => copyToClipboard(selectedAddress.viewingKey || '', 'Viewing key')}
+                                title="Copy viewing key"
+                              >
+                                {copiedAddress === selectedAddress.viewingKey ? '✓' : '📋'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {selectedAddress.spendingKey && (
+                          <div className="detail-item">
+                            <span className="detail-label">Spending Key:</span>
+                            <div className="detail-value-row">
+                              <span className="detail-value key-text">
+                                {visibleFullAddresses[`spending_${selectedAddress.address}`] 
+                                 ? selectedAddress.spendingKey 
+                                 : truncateAddress(selectedAddress.spendingKey || '')}
+                              </span>
+                              <button 
+                                className="visibility-toggle" 
+                                onClick={() => toggleAddressVisibility(`spending_${selectedAddress.address}`)}
+                                title={visibleFullAddresses[`spending_${selectedAddress.address}`] ? "Hide full key" : "Show full key"}
+                              >
+                                {visibleFullAddresses[`spending_${selectedAddress.address}`] ? '👁️' : '👁️‍🗨️'}
+                              </button>
+                              <button 
+                                className="copy-button-sm" 
+                                onClick={() => copyToClipboard(selectedAddress.spendingKey || '', 'Spending key')}
+                                title="Copy spending key"
+                              >
+                                {copiedAddress === selectedAddress.spendingKey ? '✓' : '📋'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className="detail-actions">
+                        {selectedAddress.type === 'stealth' && (
+                          <Link 
+                            to="/withdraw" 
+                            className="action-button withdraw-button"
+                            onClick={() => setIsWalletMenuOpen(false)}
+                          >
+                            Withdraw Funds
+                          </Link>
+                        )}
+                        {selectedAddress.type === 'meta' && (
+                          <Link 
+                            to="/receive" 
+                            className="action-button receive-button"
+                            onClick={() => setIsWalletMenuOpen(false)}
+                          >
+                            Receive Funds
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+            
+            <div className="wallet-menu-footer">
+              <Link 
+                to="/scan" 
+                className="footer-button scan-button"
+                onClick={() => setIsWalletMenuOpen(false)}
+              >
+                🔍 Scan for Payments
+              </Link>
+              <Link 
+                to="/receive" 
+                className="footer-button receive-button"
+                onClick={() => setIsWalletMenuOpen(false)}
+              >
+                📥 Generate Address
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Black Banner with White Text */}
       <div className="banner">
         <h1>LUKSO Stealth Payments</h1>
@@ -1605,13 +2118,23 @@ const Home = () => {
         }
         
         .address-value {
-          font-size: 0.9rem;
-          margin: 0;
-          padding: 0.5rem;
-          background: #f8f9fa;
-          border-radius: 4px;
+          font-size: 0.85rem;
           font-family: monospace;
-          word-break: break-all;
+          color: #666;
+          display: flex;
+          align-items: center;
+        }
+        
+        .address-balance {
+          font-size: 0.9rem;
+          color: #28a745;
+          font-weight: 500;
+          margin-top: 0.3rem;
+        }
+        
+        .address-actions {
+          display: flex;
+          align-items: center;
         }
         
         .truncate {
@@ -1628,23 +2151,51 @@ const Home = () => {
         
         .meta-address-container .payment-button {
           display: inline-block;
-          margin: 1rem auto 0;
-          padding: 0.8rem 1.5rem;
-          border: none;
-          background-color: #28a745;
+          padding: 1rem 1.5rem;
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
           color: white;
-          border-radius: 6px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: background-color 0.2s;
-          text-align: center;
+          border-radius: 8px;
+          border: none;
+          font-weight: 600;
           text-decoration: none;
+          margin: 1rem auto 0;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+          position: relative;
+          overflow: hidden;
+          z-index: 1;
+          text-align: center;
           max-width: 90%;
-          align-self: center;
+        }
+        
+        .payment-button:before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+          opacity: 0;
+          z-index: -1;
+          transition: opacity 0.3s ease;
         }
         
         .payment-button:hover {
-          background-color: #218838;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
+          text-decoration: none;
+          color: white;
+        }
+        
+        .payment-button:hover:before {
+          opacity: 1;
+        }
+        
+        .payment-button:active {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
         }
         
         .meta-validation {
@@ -1717,15 +2268,33 @@ const Home = () => {
         }
         
         .action-card {
-          display: block;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          background-color: white;
+          border-radius: 12px;
+          padding: 2rem 1.5rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
           text-decoration: none;
           color: inherit;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-          padding: 1.5rem;
-          transition: transform 0.2s, box-shadow 0.2s;
-          text-align: center;
+          position: relative;
+          overflow: hidden;
+          z-index: 1;
+        }
+        
+        .action-card:before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, rgba(240,240,240,0.5) 0%, rgba(255,255,255,0.5) 100%);
+          opacity: 0;
+          z-index: -1;
+          transition: opacity 0.3s ease;
         }
         
         .action-card:hover {
@@ -1733,22 +2302,52 @@ const Home = () => {
           box-shadow: 0 8px 24px rgba(0,0,0,0.1);
         }
         
-        .card-icon {
-          font-size: 2.5rem;
-          margin-bottom: 1rem;
+        .action-card:hover:before {
+          opacity: 1;
         }
         
         .action-card h3 {
-          font-size: 1.3rem;
-          margin: 0 0 0.8rem 0;
-          color: #333;
+          font-size: 1.5rem;
+          margin: 1.5rem 0 1rem;
+          font-weight: 600;
         }
         
         .action-card p {
-          font-size: 0.95rem;
-          color: #666;
           margin: 0;
-          line-height: 1.4;
+          color: #666;
+          line-height: 1.5;
+        }
+        
+        .card-icon {
+          font-size: 2.5rem;
+          margin-bottom: 0.5rem;
+          background-color: #f8f9fa;
+          width: 70px;
+          height: 70px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          transition: transform 0.3s ease;
+        }
+        
+        .action-card:hover .card-icon {
+          transform: scale(1.1);
+        }
+        
+        .send-icon {
+          background-color: rgba(0, 102, 204, 0.1);
+          color: #0066cc;
+        }
+        
+        .receive-icon {
+          background-color: rgba(40, 167, 69, 0.1);
+          color: #28a745;
+        }
+        
+        .scan-icon {
+          background-color: rgba(255, 193, 7, 0.1);
+          color: #ffc107;
         }
         
         .status-section {
@@ -1924,6 +2523,400 @@ const Home = () => {
           
           .action-cards {
             grid-template-columns: 1fr;
+          }
+        }
+        
+        .wallet-icon-button {
+          position: fixed;
+          top: 20px;
+          right: 80px;
+          z-index: 1000;
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          background-color: rgba(0, 0, 0, 0.7);
+          color: white;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: background-color 0.3s, transform 0.2s;
+          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+        
+        .wallet-icon-button:hover {
+          background-color: #000;
+          transform: scale(1.05);
+        }
+        
+        .wallet-menu {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 50vw;
+          height: 100vh;
+          background-color: white;
+          box-shadow: 2px 0 10px rgba(0, 0, 0, 0.2);
+          z-index: 1001;
+          display: flex;
+          flex-direction: column;
+          animation: slideIn 0.3s ease-out;
+          overflow: hidden;
+        }
+        
+        .wallet-content {
+          flex: 1;
+          overflow-y: auto;
+          padding: 0 1rem;
+        }
+        
+        .wallet-menu-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem;
+          background-color: #000;
+          color: white;
+          border-bottom: 1px solid #ddd;
+          position: sticky;
+          top: 0;
+          z-index: 2;
+        }
+        
+        .wallet-menu-header h2 {
+          margin: 0;
+          font-size: 1.5rem;
+        }
+        
+        .close-button {
+          background: none;
+          border: none;
+          color: white;
+          font-size: 1.8rem;
+          cursor: pointer;
+          padding: 0;
+          line-height: 1;
+        }
+        
+        .copy-notification {
+          position: fixed;
+          top: 70px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(0, 0, 0, 0.7);
+          color: white;
+          padding: 0.8rem 1.5rem;
+          border-radius: 4px;
+          font-size: 0.9rem;
+          z-index: 1010;
+          animation: fadeIn 0.3s, fadeOut 0.3s 1.7s;
+        }
+        
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        @keyframes fadeOut {
+          from { opacity: 1; }
+          to { opacity: 0; }
+        }
+        
+        .address-list {
+          margin-bottom: 1.5rem;
+          max-height: 300px;
+          overflow-y: auto;
+        }
+        
+        .address-item {
+          display: flex;
+          align-items: center;
+          padding: 0.8rem;
+          margin-bottom: 0.5rem;
+          background-color: #f8f9fa;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+        
+        .address-item:hover {
+          background-color: #e9ecef;
+        }
+        
+        .address-item.selected {
+          background-color: #e2e6ea;
+          border-left: 3px solid #0066cc;
+        }
+        
+        .address-icon {
+          font-size: 1.5rem;
+          margin-right: 0.8rem;
+          width: 30px;
+          text-align: center;
+        }
+        
+        .address-info {
+          flex: 1;
+          overflow: hidden;
+        }
+        
+        .address-name {
+          font-weight: 500;
+          margin-bottom: 0.2rem;
+        }
+        
+        .address-value {
+          font-size: 0.85rem;
+          font-family: monospace;
+          color: #666;
+          display: flex;
+          align-items: center;
+        }
+        
+        .address-actions {
+          display: flex;
+          align-items: center;
+        }
+        
+        .copy-button, 
+        .visibility-toggle {
+          background: none;
+          border: none;
+          color: #666;
+          cursor: pointer;
+          font-size: 1rem;
+          padding: 0.3rem;
+          margin-left: 0.3rem;
+          transition: color 0.2s;
+        }
+        
+        .copy-button:hover, 
+        .visibility-toggle:hover {
+          color: #0066cc;
+        }
+        
+        .no-addresses {
+          text-align: center;
+          padding: 2rem 0;
+          color: #666;
+        }
+        
+        .help-text {
+          font-size: 0.9rem;
+          margin-top: 0.5rem;
+        }
+        
+        .inline-link {
+          color: #0066cc;
+          text-decoration: none;
+        }
+        
+        .inline-link:hover {
+          text-decoration: underline;
+        }
+        
+        .address-detail {
+          border-top: 1px solid #ddd;
+          padding-top: 1.5rem;
+          margin-top: 1rem;
+        }
+        
+        .detail-card {
+          background-color: #f8f9fa;
+          border-radius: 8px;
+          overflow: hidden;
+        }
+        
+        .detail-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.8rem 1rem;
+          background-color: #e9ecef;
+        }
+        
+        .detail-type-badge {
+          background-color: #0066cc;
+          color: white;
+          padding: 0.3rem 0.7rem;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 500;
+        }
+        
+        .remove-button {
+          background: none;
+          border: none;
+          cursor: pointer;
+          font-size: 1.2rem;
+          color: #666;
+          transition: color 0.2s;
+        }
+        
+        .remove-button:hover {
+          color: #dc3545;
+        }
+        
+        .detail-content {
+          padding: 1rem;
+        }
+        
+        .detail-item {
+          margin-bottom: 1.2rem;
+        }
+        
+        .detail-item:last-child {
+          margin-bottom: 0;
+        }
+        
+        .detail-label {
+          display: block;
+          font-weight: 500;
+          margin-bottom: 0.5rem;
+          color: #495057;
+        }
+        
+        .detail-value-row {
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        
+        .detail-value {
+          font-family: monospace;
+          word-break: break-all;
+          flex: 1;
+          margin-right: 0.5rem;
+        }
+        
+        .address-text,
+        .key-text {
+          background-color: #e9ecef;
+          padding: 0.5rem;
+          border-radius: 4px;
+          display: inline-block;
+          width: 100%;
+          margin-bottom: 0.5rem;
+        }
+        
+        .balance-text {
+          font-weight: 600;
+          color: #28a745;
+          background-color: rgba(40, 167, 69, 0.1);
+          padding: 0.3rem 0.6rem;
+          border-radius: 4px;
+          display: inline-block;
+        }
+        
+        .key-warning {
+          font-size: 0.8rem;
+          color: #dc3545;
+          margin-top: 0.5rem;
+        }
+        
+        .copy-button-sm {
+          background: none;
+          border: none;
+          color: #666;
+          cursor: pointer;
+          font-size: 1rem;
+          padding: 0.3rem;
+          transition: color 0.2s;
+        }
+        
+        .copy-button-sm:hover {
+          color: #0066cc;
+        }
+        
+        .detail-actions {
+          padding: 1rem;
+          background-color: #e9ecef;
+          display: flex;
+          justify-content: center;
+        }
+        
+        .action-button {
+          display: inline-block;
+          padding: 0.7rem 1.5rem;
+          border-radius: 6px;
+          text-decoration: none;
+          font-weight: 500;
+          text-align: center;
+          transition: background-color 0.2s;
+        }
+        
+        .withdraw-button {
+          background-color: #28a745;
+          color: white;
+        }
+        
+        .withdraw-button:hover {
+          background-color: #218838;
+        }
+        
+        .receive-button {
+          background-color: #0066cc;
+          color: white;
+        }
+        
+        .receive-button:hover {
+          background-color: #0055aa;
+        }
+        
+        /* Wallet menu footer styling */
+        .wallet-menu-footer {
+          border-top: 1px solid #ddd;
+          padding: 1rem;
+          display: flex;
+          justify-content: space-between;
+          gap: 1rem;
+          background-color: #f8f9fa;
+        }
+        
+        .footer-button {
+          flex: 1;
+          display: inline-block;
+          padding: 0.8rem 1rem;
+          text-align: center;
+          border-radius: 6px;
+          font-weight: 500;
+          text-decoration: none;
+          color: white;
+          transition: background-color 0.2s, transform 0.2s;
+        }
+        
+        .footer-button:hover {
+          transform: translateY(-2px);
+        }
+        
+        .footer-button.scan-button {
+          background-color: #6c757d;
+        }
+        
+        .footer-button.scan-button:hover {
+          background-color: #5a6268;
+        }
+        
+        .footer-button.receive-button {
+          background-color: #0066cc;
+        }
+        
+        .footer-button.receive-button:hover {
+          background-color: #0055aa;
+        }
+        
+        @keyframes slideIn {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
+        
+        @media (max-width: 768px) {
+          .wallet-menu {
+            width: 100vw;
+          }
+          
+          .wallet-menu-footer {
+            flex-direction: column;
           }
         }
       `}</style>

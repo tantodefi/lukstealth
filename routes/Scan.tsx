@@ -45,6 +45,8 @@ const Scan = () => {
   const [transactions, setTransactions] = useState<StealthTransaction[]>([]);
   const [connectionMessage, setConnectionMessage] = useState<string>('');
   const [scanComplete, setScanComplete] = useState<boolean>(false);
+  const [scanSuccess, setScanSuccess] = useState<string | null>(null);
+  const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
 
   // Helper function to truncate addresses for display
   const truncateAddress = (address: string): string => {
@@ -129,6 +131,7 @@ const Scan = () => {
       setIsScanning(true);
       setError(null);
       setScanComplete(false);
+      setScanSuccess(null);
       
       if (!key) {
         throw new Error('Viewing key is required');
@@ -183,6 +186,7 @@ const Scan = () => {
         setTransactions(mockTransactions);
         setIsScanning(false);
         setScanComplete(true);
+        setScanSuccess(`Scan complete! Found ${mockTransactions.length} stealth payment(s).`);
       }, 2000);
     } catch (error: any) {
       console.error('Error scanning for transactions:', error);
@@ -200,6 +204,7 @@ const Scan = () => {
         [transaction.id]: true
       }));
       setError(null);
+      setWithdrawSuccess(null);
       
       if (!spendingKey) {
         throw new Error('Spending key is required');
@@ -235,6 +240,7 @@ const Scan = () => {
           ...prev,
           [transaction.id]: false
         }));
+        setWithdrawSuccess(`Success! Withdrew ${transaction.amount} from stealth address ${truncateAddress(transaction.stealthAddress)}`);
       }, 2000);
     } catch (error: any) {
       console.error('Error withdrawing funds:', error);
@@ -255,13 +261,13 @@ const Scan = () => {
     <div className="page-container">
       {/* Black Banner with White Text */}
       <div className="banner">
-        <h1>Scan for Stealth Payments</h1>
+        <h1 className="heading">Scan for Stealth Payments</h1>
         <p>Find and withdraw private payments sent to your stealth meta-address</p>
       </div>
 
-      <div className="main-container">
+      <div className="home-container">
         <div className="main-description">
-          <h2>Find Your Private Payments</h2>
+          <h2>Find Your Private Payments 🥷</h2>
           <p>
             Enter your viewing key to scan for stealth payments. If payments are found, you can use your spending key to withdraw them to your main wallet.
           </p>
@@ -298,6 +304,20 @@ const Scan = () => {
           </div>
         )}
         
+        {/* Success message */}
+        {scanSuccess && (
+          <div className="success-container">
+            <p className="success-message">✅ {scanSuccess}</p>
+          </div>
+        )}
+        
+        {/* Withdraw success message */}
+        {withdrawSuccess && (
+          <div className="success-container withdraw-success">
+            <p className="success-message">💰 {withdrawSuccess}</p>
+          </div>
+        )}
+        
         {/* Scanning form */}
         <div className="scan-form-section">
           <h2>Enter Your Keys</h2>
@@ -331,7 +351,7 @@ const Scan = () => {
             <button 
               onClick={() => handleScan()}
               disabled={isScanning || !viewingKey.trim()}
-              className="primary-button"
+              className="scan-button"
             >
               {isScanning ? (
                 <>
@@ -339,7 +359,7 @@ const Scan = () => {
                   <span>Scanning...</span>
                 </>
               ) : (
-                <>🔍 Scan for Payments</>
+                <>🥷 Scan for Stealth Payments</>
               )}
             </button>
           </div>
@@ -348,7 +368,7 @@ const Scan = () => {
         {/* Transaction List */}
         {scanComplete && (
           <div className="transaction-section">
-            <h2>{transactions.length > 0 ? "Found Transactions" : "No Transactions Found"}</h2>
+            <h2>{transactions.length > 0 ? "Found Stealth Payments" : "No Transactions Found"}</h2>
             
             {transactions.length > 0 ? (
               <div className="transaction-list">
@@ -360,20 +380,20 @@ const Scan = () => {
                       </div>
                       
                       <div className="transaction-date">
-                        Received: {formatDate(transaction.timestamp)}
+                        <strong>Received:</strong> {formatDate(transaction.timestamp)}
                       </div>
                       
                       <div className="transaction-address">
-                        Stealth Address: <span className="address-text">{truncateAddress(transaction.stealthAddress)}</span>
+                        <strong>Stealth Address:</strong> <span className="address-text">{truncateAddress(transaction.stealthAddress)}</span>
                       </div>
                       
                       <div className="transaction-key truncate">
-                        Ephemeral Key: <span className="key-text">{truncateAddress(transaction.ephemeralPublicKey)}</span>
+                        <strong>Ephemeral Key:</strong> <span className="key-text">{truncateAddress(transaction.ephemeralPublicKey)}</span>
                       </div>
                       
                       <div className="transaction-status">
-                        Status: <span className={`status-badge ${transaction.status}`}>
-                          {transaction.status === 'pending' ? 'Available to Withdraw' : 'Withdrawn'}
+                        <strong>Status:</strong> <span className={`status-badge ${transaction.status}`}>
+                          {transaction.status === 'pending' ? '🔓 Available to Withdraw' : '✅ Withdrawn'}
                         </span>
                       </div>
                     </div>
@@ -391,7 +411,7 @@ const Scan = () => {
                       ) : transaction.status === 'withdrawn' ? (
                         '✓ Withdrawn'
                       ) : (
-                        '💰 Withdraw Funds'
+                        '🥷 Withdraw Funds'
                       )}
                     </button>
                   </div>
@@ -432,6 +452,7 @@ const Scan = () => {
           padding: 3rem 2rem;
           text-align: center;
           margin-bottom: 2rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }
         
         .banner h1 {
@@ -446,7 +467,7 @@ const Scan = () => {
           opacity: 0.9;
         }
         
-        .main-container {
+        .home-container {
           max-width: 900px;
           margin: 0 auto 4rem;
           padding: 0 1.5rem;
@@ -457,6 +478,7 @@ const Scan = () => {
           background-color: #f8f9fa;
           padding: 2rem;
           border-radius: 12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         
         .main-description h2 {
@@ -464,6 +486,9 @@ const Scan = () => {
           margin-top: 0;
           margin-bottom: 1rem;
           color: #333;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
         }
         
         .main-description p {
@@ -547,6 +572,32 @@ const Scan = () => {
           font-size: 0.95rem;
         }
         
+        .success-container {
+          padding: 1.2rem;
+          background: #f1fffa;
+          border-left: 4px solid #28a745;
+          border-radius: 4px;
+          margin-bottom: 2rem;
+        }
+        
+        .success-container.withdraw-success {
+          background: #f0f9ff;
+          border-left-color: #0066cc;
+        }
+        
+        .success-message {
+          color: #28a745;
+          margin: 0;
+          font-size: 0.95rem;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        
+        .withdraw-success .success-message {
+          color: #0066cc;
+        }
+        
         .scan-form-section {
           margin-bottom: 2rem;
         }
@@ -563,6 +614,7 @@ const Scan = () => {
           box-shadow: 0 4px 12px rgba(0,0,0,0.05);
           padding: 1.5rem;
           margin-bottom: 2rem;
+          border: 1px solid #eaeaea;
         }
         
         .form-group {
@@ -584,12 +636,14 @@ const Scan = () => {
           font-size: 1rem;
           font-family: monospace;
           transition: border-color 0.2s;
+          background-color: #f8f9fa;
         }
         
         .form-input:focus {
           border-color: #0066cc;
           outline: none;
           box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.2);
+          background-color: #fff;
         }
         
         .form-help {
@@ -598,30 +652,60 @@ const Scan = () => {
           margin: 0.5rem 0 0 0;
         }
         
-        .primary-button {
+        .scan-button {
           display: flex;
           align-items: center;
           justify-content: center;
           gap: 0.5rem;
-          padding: 0.9rem 1.5rem;
+          padding: 1rem 1.5rem;
           border: none;
-          background-color: #0066cc;
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
           color: white;
-          border-radius: 6px;
-          font-weight: 500;
-          font-size: 1rem;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 1.1rem;
           cursor: pointer;
-          transition: background-color 0.2s;
+          transition: all 0.3s ease;
           width: 100%;
+          max-width: 350px;
+          margin: 1.5rem auto 0;
+          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+          position: relative;
+          overflow: hidden;
         }
         
-        .primary-button:hover:not(:disabled) {
-          background-color: #0055aa;
+        .scan-button:before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+          opacity: 0;
+          z-index: -1;
+          transition: opacity 0.3s ease;
         }
         
-        .primary-button:disabled {
-          background-color: #bbb;
+        .scan-button:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
+        }
+        
+        .scan-button:hover:not(:disabled):before {
+          opacity: 1;
+        }
+        
+        .scan-button:active:not(:disabled) {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
+        }
+        
+        .scan-button:disabled {
+          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
           cursor: not-allowed;
+          box-shadow: none;
+          opacity: 0.7;
         }
         
         .spinner {
@@ -632,6 +716,7 @@ const Scan = () => {
           border-radius: 50%;
           border-top-color: white;
           animation: spin 1s ease-in-out infinite;
+          margin-right: 0.5rem;
         }
         
         @keyframes spin {
@@ -641,30 +726,47 @@ const Scan = () => {
         
         .transaction-section {
           margin-bottom: 2rem;
+          background-color: #f8f9fa;
+          padding: 2rem;
+          border-radius: 12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         }
         
         .transaction-section h2 {
           font-size: 1.5rem;
-          margin: 0 0 1rem 0;
+          margin: 0 0 1.5rem 0;
           color: #333;
+          border-bottom: 1px solid #e9ecef;
+          padding-bottom: 0.75rem;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        
+        .transaction-section h2:before {
+          content: '🥷';
+          display: inline-block;
         }
         
         .transaction-list {
           display: grid;
           grid-template-columns: 1fr;
-          gap: 1rem;
+          gap: 1.2rem;
         }
         
         .transaction-card {
           display: flex;
           justify-content: space-between;
-          align-items: center;
+          align-items: flex-start;
           background: white;
           border-radius: 12px;
           box-shadow: 0 4px 12px rgba(0,0,0,0.05);
           padding: 1.5rem;
           transition: transform 0.2s, box-shadow 0.2s;
           flex-wrap: wrap;
+          border-left: 4px solid #28a745;
+          position: relative;
+          overflow: hidden;
         }
         
         .transaction-card:hover {
@@ -681,31 +783,53 @@ const Scan = () => {
           font-size: 1.5rem;
           font-weight: 600;
           color: #333;
-          margin-bottom: 0.5rem;
+          margin-bottom: 0.7rem;
+          display: flex;
+          align-items: center;
+        }
+        
+        .transaction-amount:before {
+          content: '🥷';
+          display: inline-block;
+          margin-right: 0.4rem;
+          font-size: 1.4rem;
         }
         
         .transaction-date,
         .transaction-address,
         .transaction-key,
         .transaction-status {
-          font-size: 0.9rem;
-          color: #666;
-          margin-bottom: 0.4rem;
+          font-size: 0.95rem;
+          color: #555;
+          margin-bottom: 0.6rem;
+          display: flex;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 0.4rem;
+        }
+        
+        .transaction-date strong,
+        .transaction-address strong,
+        .transaction-key strong,
+        .transaction-status strong {
+          color: #333;
+          min-width: 110px;
         }
         
         .address-text,
         .key-text {
           font-family: monospace;
           background-color: #f8f9fa;
-          padding: 0.2rem 0.4rem;
+          padding: 0.3rem 0.5rem;
           border-radius: 4px;
+          font-size: 0.9rem;
         }
         
         .status-badge {
           display: inline-block;
-          padding: 0.25rem 0.5rem;
+          padding: 0.25rem 0.7rem;
           border-radius: 4px;
-          font-size: 0.8rem;
+          font-size: 0.85rem;
           font-weight: 500;
         }
         
@@ -724,36 +848,67 @@ const Scan = () => {
           align-items: center;
           justify-content: center;
           gap: 0.5rem;
-          margin-top: 1rem;
-          padding: 0.7rem 1.2rem;
+          padding: 0.8rem 1.4rem;
           border: none;
-          background-color: #28a745;
+          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
           color: white;
-          border-radius: 6px;
-          font-weight: 500;
+          border-radius: 8px;
+          font-weight: 600;
+          font-size: 1rem;
           cursor: pointer;
-          transition: background-color 0.2s;
+          transition: all 0.3s ease;
+          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+          position: relative;
+          overflow: hidden;
+          margin-top: 1rem;
+        }
+        
+        .transaction-button:before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
+          opacity: 0;
+          z-index: -1;
+          transition: opacity 0.3s ease;
         }
         
         .transaction-button:hover:not(:disabled) {
-          background-color: #218838;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
+        }
+        
+        .transaction-button:hover:not(:disabled):before {
+          opacity: 1;
+        }
+        
+        .transaction-button:active:not(:disabled) {
+          transform: translateY(1px);
+          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
         }
         
         .transaction-button:disabled {
-          background-color: #bbb;
+          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
           cursor: not-allowed;
+          box-shadow: none;
+          opacity: 0.7;
         }
         
         .transaction-button.withdrawn {
-          background-color: #6c757d;
+          background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+          box-shadow: 0 4px 10px rgba(108, 117, 125, 0.3);
         }
         
         .no-transactions {
-          background: #f8f9fa;
+          background: #f9f9f9;
           padding: 2rem;
           text-align: center;
           border-radius: 12px;
           color: #666;
+          border: 1px dashed #ccc;
         }
         
         .navigation-links {
@@ -767,13 +922,29 @@ const Scan = () => {
           color: #0066cc;
           text-decoration: none;
           font-weight: 500;
-          transition: color 0.2s;
+          transition: color 0.2s, transform 0.2s;
+          display: inline-block;
         }
         
         .back-link:hover,
         .action-link:hover {
           color: #0055aa;
           text-decoration: underline;
+        }
+        
+        .back-link:hover {
+          transform: translateX(-3px);
+        }
+        
+        .action-link:hover {
+          transform: translateX(3px);
+        }
+        
+        .truncate {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
         }
         
         /* Media Queries */
@@ -794,6 +965,7 @@ const Scan = () => {
           .transaction-button {
             margin-top: 1rem;
             align-self: flex-end;
+            width: 100%;
           }
           
           .status-content {
@@ -803,12 +975,13 @@ const Scan = () => {
           
           .connect-button {
             margin-top: 1rem;
+            width: 100%;
           }
         }
         
-        @media (min-width: 768px) {
+        @media (min-width: 769px) {
           .transaction-button {
-            margin-top: 0;
+            align-self: center;
           }
         }
       `}</style>
