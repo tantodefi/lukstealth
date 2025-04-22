@@ -18,6 +18,7 @@ const Navigation = () => {
     { path: '/', label: 'Home' },
     { path: '/send', label: 'Send' },
     { path: '/receive', label: 'Receive' },
+    { path: '/scan', label: 'Scan' },
     { path: '/withdraw', label: 'Withdraw' },
     { path: '/developer-mode', label: 'Developer Mode' }
   ];

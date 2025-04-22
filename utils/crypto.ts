@@ -1,25 +1,60 @@
+// Add type declarations for wallet providers
+declare global {
+  interface Window {
+    lukso?: any;
+    ethereum?: any;
+  }
+}
+
 /**
  * Gets a signature from the user by asking them to sign a message
  */
 export const getSignature = async ({ message }: { message: string }) => {
   try {
-    if (typeof window === 'undefined' || !window.ethereum) {
-      throw new Error('No Ethereum provider found');
+    if (typeof window === 'undefined') {
+      throw new Error('Window is not defined');
     }
     
-    const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-    const account = accounts[0];
-    
-    if (!account) {
-      throw new Error('No account selected');
+    // First try LUKSO UP provider
+    if (typeof window.lukso !== 'undefined') {
+      console.log('Getting signature from LUKSO UP provider');
+      
+      // Get accounts from LUKSO UP
+      const accounts = await window.lukso.request({ method: 'eth_requestAccounts' });
+      const account = accounts[0];
+      
+      if (!account) {
+        throw new Error('No LUKSO UP account selected');
+      }
+      
+      // Sign with LUKSO UP
+      const signature = await window.lukso.request({
+        method: 'personal_sign',
+        params: [message, account]
+      });
+      
+      return signature;
+    } 
+    // Fallback to MetaMask/standard provider
+    else if (typeof window.ethereum !== 'undefined') {
+      console.log('Getting signature from standard provider (MetaMask)');
+      
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const account = accounts[0];
+      
+      if (!account) {
+        throw new Error('No account selected');
+      }
+      
+      const signature = await window.ethereum.request({
+        method: 'personal_sign',
+        params: [message, account]
+      });
+      
+      return signature;
+    } else {
+      throw new Error('No web3 provider found. Please install LUKSO UP or MetaMask.');
     }
-    
-    const signature = await window.ethereum.request({
-      method: 'personal_sign',
-      params: [message, account]
-    });
-    
-    return signature;
   } catch (error) {
     console.error('Error getting signature:', error);
     throw error;

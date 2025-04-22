@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@erc725/erc725.js": "^0.27.2",
     "@lukso/up-provider": "^0.3.5",
     "@scopelift/stealth-address-sdk": "^1.0.0-beta.2",
     "@tanstack/react-query": "^5.51.1",
