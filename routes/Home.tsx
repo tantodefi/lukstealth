@@ -5,8 +5,9 @@ import ERC725, { ERC725JSONSchema } from '@erc725/erc725.js';
 import Web3 from 'web3';
 import { LUKSO_MAINNET_ERC5564_REGISTRY, registryABI } from '../constants/contractData';
 import { ethers } from 'ethers';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, encodeFunctionData, parseEther } from 'viem';
 import { lukso } from 'viem/chains';
+import { generateStealthAddress } from '../utils/crypto';
 
 // Add type declarations for wallet providers
 declare global {
@@ -52,14 +53,14 @@ interface UPProfile {
 }
 
 // Add RPC URL constant
-const RPC_URL = 'https://rpc.lukso.network';
+const RPC_URL = import.meta.env?.VITE_RPC_URL || 'https://rpc.lukso.sigmacore.io';
 
 // Backup RPC URLs if the primary one fails
-const BACKUP_RPC_URLS = [
-  'https://rpc.mainnet.lukso.network',
-  'https://lukso.drpc.org',
-  'https://1rpc.io/lukso',
-  'https://mainnet.lukso.gateway.fm'
+const BACKUP_URLS = [
+  'https://rpc.testnet.lukso.network',
+  'https://rc-testnet.rpc.lukso.network',
+  'https://mainnet.rpc.lukso.network',
+  'https://rpc.lukso.network',
 ];
 
 // IPFS Gateway
@@ -76,6 +77,36 @@ interface StealthAddressInfo {
   spendingKey?: string;
   timestamp: number;
   name?: string;
+}
+
+// Environment constants
+// const RPC_URL = import.meta.env?.VITE_RPC_URL || 'https://rpc.lukso.sigmacore.io';
+
+// Stealth Address Constants
+const LUKSO_MAINNET_ERC5564_ANNOUNCER = '0x8653F395983827E05A6625eED4D045e696980D16';
+const SCHEME_ID_VALUE = 1n;
+
+// Announcer ABI for stealth payments
+const ERC5564_ANNOUNCER_ABI = [
+  {
+    inputs: [
+      { internalType: 'uint256', name: 'schemeId', type: 'uint256' },
+      { internalType: 'address', name: 'stealthAddress', type: 'address' },
+      { internalType: 'bytes', name: 'ephemeralPubKey', type: 'bytes' },
+      { internalType: 'bytes', name: 'metadata', type: 'bytes' }
+    ],
+    name: 'announce',
+    outputs: [],
+    stateMutability: 'nonpayable',
+    type: 'function'
+  }
+];
+
+// Interface for stealth address details
+interface StealthAddressDetails {
+  stealthAddress: string;
+  ephemeralPublicKey: string;
+  viewTag: string;
 }
 
 // Add a utility function to directly access contextAccounts through DOM inspection - critical for incognito mode
@@ -1018,7 +1049,7 @@ const Home = () => {
       } catch (error) {
         console.warn('Primary RPC failed, trying alternatives');
         
-        for (const rpcUrl of BACKUP_RPC_URLS) {
+        for (const rpcUrl of BACKUP_URLS) {
           try {
             web3 = new Web3(rpcUrl);
             await web3.eth.net.isListening();
@@ -1137,23 +1168,39 @@ const Home = () => {
       
       console.log('Fetching stealth meta address for:', address);
       
-      // Try multiple RPC URLs for the meta address lookup
+      // Try primary RPC URL first, then fall back to backup URLs
       let client;
-      for (const rpcUrl of BACKUP_RPC_URLS) {
-        try {
-          console.log(`Trying RPC URL for meta address lookup: ${rpcUrl}`);
-          client = createPublicClient({
-            chain: lukso,
-            transport: http(rpcUrl)
-          });
-          
-          // Test connection with a simple eth_blockNumber call
-          await client.getBlockNumber();
-          console.log(`Successfully connected to ${rpcUrl}`);
-          break;
-        } catch (error) {
-          console.warn(`Failed to connect to ${rpcUrl}:`, error);
-          client = null;
+      try {
+        console.log(`Trying primary RPC URL for meta address lookup: ${RPC_URL}`);
+        client = createPublicClient({
+          chain: lukso,
+          transport: http(RPC_URL)
+        });
+        
+        // Test connection with a simple eth_blockNumber call
+        await client.getBlockNumber();
+        console.log(`Successfully connected to primary RPC: ${RPC_URL}`);
+      } catch (error) {
+        console.warn(`Failed to connect to primary RPC ${RPC_URL}:`, error);
+        client = null;
+        
+        // Fall back to backup URLs
+        for (const rpcUrl of BACKUP_URLS) {
+          try {
+            console.log(`Trying backup RPC URL: ${rpcUrl}`);
+            client = createPublicClient({
+              chain: lukso,
+              transport: http(rpcUrl)
+            });
+            
+            // Test connection with a simple eth_blockNumber call
+            await client.getBlockNumber();
+            console.log(`Successfully connected to backup RPC: ${rpcUrl}`);
+            break;
+          } catch (error) {
+            console.warn(`Failed to connect to ${rpcUrl}:`, error);
+            client = null;
+          }
         }
       }
       
@@ -1187,25 +1234,48 @@ const Home = () => {
         console.log('Meta address lookup result:', metaAddressResult);
         
         if (metaAddressResult) {
-          // Check if it's a string or bytes and handle accordingly
+          // Handle string format (most common return type from this registry)
           if (typeof metaAddressResult === 'string') {
-            console.log('Meta address found (string):', metaAddressResult);
-            setGridOwnerMetaAddress(metaAddressResult);
-          } else if (typeof metaAddressResult === 'object' && metaAddressResult !== null) {
-            const finalMetaAddress = '0x' + Buffer.from(metaAddressResult as any).toString('hex');
-            console.log('Meta address found (converted from bytes):', finalMetaAddress);
-            setGridOwnerMetaAddress(finalMetaAddress);
-          } else if (Array.isArray(metaAddressResult)) {
-            // Handle array of bytes if needed
-            console.log('Meta address is an array of bytes, converting...');
-            const finalMetaAddress = '0x' + Array.from(metaAddressResult).map(b => 
-              b.toString(16).padStart(2, '0')).join('');
-            console.log('Meta address converted from byte array:', finalMetaAddress);
-            setGridOwnerMetaAddress(finalMetaAddress);
+            const cleanedMetaAddress = metaAddressResult.trim();
+            console.log('Meta address found (string):', cleanedMetaAddress);
+            
+            // Verify it looks like a valid stealth meta address
+            if (cleanedMetaAddress && cleanedMetaAddress.length > 0) {
+              console.log('Setting valid meta address:', cleanedMetaAddress);
+              setGridOwnerMetaAddress(cleanedMetaAddress);
+            } else {
+              console.log('Empty or invalid meta address string returned');
+            }
+          } 
+          // Handle byte-like objects (alternative format)
+          else if (typeof metaAddressResult === 'object' && metaAddressResult !== null) {
+            console.log('Meta address found (object type):', typeof metaAddressResult);
+            
+            try {
+              const finalMetaAddress = '0x' + Buffer.from(metaAddressResult as any).toString('hex');
+              console.log('Meta address converted from bytes:', finalMetaAddress);
+              setGridOwnerMetaAddress(finalMetaAddress);
+            } catch (conversionError) {
+              console.error('Error converting meta address from bytes:', conversionError);
+            }
+          } 
+          // Handle array format
+          else if (Array.isArray(metaAddressResult)) {
+            console.log('Meta address is an array with length:', metaAddressResult.length);
+            
+            try {
+              // If it's a bytes array, convert to hex
+              const finalMetaAddress = '0x' + Array.from(metaAddressResult).map(b => 
+                (typeof b === 'number' ? b.toString(16) : b).padStart(2, '0')).join('');
+              console.log('Meta address converted from array:', finalMetaAddress);
+              setGridOwnerMetaAddress(finalMetaAddress);
+            } catch (arrayError) {
+              console.error('Error converting meta address from array:', arrayError);
+            }
+          } else {
+            console.log('Unrecognized meta address format:', typeof metaAddressResult);
+          }
         } else {
-            console.log('No valid meta address format found');
-        }
-      } else {
           console.log('No meta address found for address:', address);
         }
       } catch (contractError) {
@@ -1486,6 +1556,76 @@ const Home = () => {
     }
   };
 
+  // Function to handle private stealth payment
+  const sendPrivately = async (recipientMetaAddress: string, amount: string) => {
+    try {
+      console.log("Starting stealth payment process...");
+      
+      // Get wallet provider
+      const provider = window.lukso || window.ethereum;
+      if (!provider) {
+        alert("No wallet provider found. Please install a Web3 wallet.");
+        return;
+      }
+      
+      // Get user accounts
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
+      if (!accounts || accounts.length === 0) {
+        alert("No accounts found. Please connect your wallet first.");
+        return;
+      }
+      
+      // Generate one-time stealth address from meta-address
+      const generatedStealthAddress = generateStealthAddress({
+        stealthMetaAddressURI: recipientMetaAddress,
+        schemeId: Number(SCHEME_ID_VALUE)
+      });
+      
+      console.log("Generated stealth address:", generatedStealthAddress);
+      
+      // Convert amount to wei
+      const amountWei = parseEther(amount);
+      const amountHex = '0x' + amountWei.toString(16);
+      
+      // Send transaction to the stealth address
+      const txHash = await provider.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: accounts[0],
+          to: generatedStealthAddress.stealthAddress,
+          value: amountHex
+        }]
+      });
+      
+      console.log("Transaction sent:", txHash);
+      
+      // Announce the stealth transaction
+      await provider.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: accounts[0],
+          to: LUKSO_MAINNET_ERC5564_ANNOUNCER,
+          data: encodeFunctionData({
+            abi: ERC5564_ANNOUNCER_ABI,
+            functionName: 'announce',
+            args: [
+              SCHEME_ID_VALUE,
+              generatedStealthAddress.stealthAddress,
+              generatedStealthAddress.ephemeralPublicKey,
+              '0x' // No metadata
+            ]
+          })
+        }]
+      });
+      
+      alert("Stealth payment sent successfully!");
+      
+    } catch (error) {
+      console.error("Error sending stealth payment:", error);
+      alert(`Error sending payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   return (
     <div className="page-container">
       {/* Wallet Menu Button */}
@@ -1493,7 +1633,7 @@ const Home = () => {
         className="wallet-icon-button"
         onClick={() => setIsWalletMenuOpen(!isWalletMenuOpen)}
       >
-        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2">
+        <svg viewBox="0 0 24 24" width="25" height="25" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M19 7h-9.5V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5a2 2 0 0 1-2-2v-2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h14z"></path>
           <path d="M16 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2z"></path>
         </svg>
@@ -1840,23 +1980,74 @@ const Home = () => {
                   <div className="profile-details">
                     <div className="address-container">
                       <p className="address-label">Address</p>
-                      <p className="address-value truncate">{gridOwner}</p>
+                      <p className="address-value">
+                        <span className="address-text truncate">{gridOwner}</span>
+                      </p>
                     </div>
                     
                     {gridOwnerMetaAddress ? (
                       <div className="meta-address-container">
                         <p className="address-label">Stealth Meta Address</p>
-                        <p className="address-value truncate">{gridOwnerMetaAddress}</p>
+                        <p className="address-value">
+                          <span className="address-text truncate">{gridOwnerMetaAddress}</span>
+                        </p>
                         <div className="meta-validation">
                           <span className="validation-check">✅</span>
                           <span className="validation-text">Found in registry: <a href={`https://explorer.lukso.network/address/${LUKSO_MAINNET_ERC5564_REGISTRY}`} target="_blank" rel="noopener noreferrer" className="registry-address">{LUKSO_MAINNET_ERC5564_REGISTRY}</a></span>
                         </div>
-                        <Link 
-                          to={`/send?recipient=${encodeURIComponent(gridOwnerMetaAddress)}&name=${encodeURIComponent(gridOwnerProfile.name || 'Universal Profile')}`}
-                          className="payment-button"
-                        >
-                          🥷 Send Stealth Payment to {gridOwnerProfile.name || 'Universal Profile'}
-                        </Link>
+                        
+                        <div style={{ 
+                          display: 'grid',
+                          gridTemplateColumns: '140px 1fr',
+                          gap: '20px', 
+                          margin: '1rem 0',
+                          alignItems: 'center'
+                        }}>
+                          <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center'
+                          }}>
+                            <input
+                              id="payment-amount"
+                              type="number"
+                              step="0.001"
+                              min="0.001"
+                              defaultValue="0.01"
+                              style={{
+                                padding: '0.8rem',
+                                border: '1px solid #ddd',
+                                borderRadius: '6px 0 0 6px',
+                                fontSize: '1rem',
+                                width: '60px'
+                              }}
+                            />
+                            <div style={{
+                              padding: '0.8rem 1rem',
+                              backgroundColor: 'rgba(9, 132, 227, 0.1)',
+                              color: '#0984e3',
+                              fontWeight: 'bold',
+                              borderRadius: '0 6px 6px 0',
+                              border: '1px solid #ddd',
+                              borderLeft: 'none'
+                            }}>LYX</div>
+                          </div>
+                          
+                          <button 
+                            className="payment-button"
+                            style={{ 
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              width: '100%'
+                            }}
+                            onClick={() => {
+                              const amount = (document.getElementById('payment-amount') as HTMLInputElement)?.value || "0.01";
+                              sendPrivately(gridOwnerMetaAddress, amount);
+                            }}
+                          >
+                            🥷 Send privately to {gridOwnerProfile.name?.split(' ')[0] || 'Profile'}
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="no-meta-container">
@@ -2125,6 +2316,16 @@ const Home = () => {
           align-items: center;
         }
         
+        .address-text {
+          font-family: monospace;
+          background-color: #f5f5f5;
+          padding: 0.3rem 0.5rem;
+          border-radius: 4px;
+          font-size: 0.9rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        
         .address-balance {
           font-size: 0.9rem;
           color: #28a745;
@@ -2150,23 +2351,26 @@ const Home = () => {
         }
         
         .meta-address-container .payment-button {
-          display: inline-block;
-          padding: 1rem 1.5rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 0.8rem 1.5rem;
+          border: none;
           background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
           color: white;
           border-radius: 8px;
-          border: none;
           font-weight: 600;
-          text-decoration: none;
-          margin: 1rem auto 0;
           cursor: pointer;
           transition: all 0.3s ease;
+          margin: 0 auto;
           box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
           position: relative;
           overflow: hidden;
           z-index: 1;
           text-align: center;
           max-width: 90%;
+          flex: 1;
         }
         
         .payment-button:before {
@@ -2196,6 +2400,49 @@ const Home = () => {
         .payment-button:active {
           transform: translateY(1px);
           box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
+        }
+        
+        .amount-input-container {
+          margin: 1rem 0;
+        }
+        
+        .amount-label {
+          display: block;
+          font-size: 0.9rem;
+          color: #666;
+          margin-bottom: 0.5rem;
+        }
+        
+        .amount-input-row {
+          display: flex;
+          align-items: center;
+          width: 130px;
+          flex-shrink: 0;
+        }
+        
+        .amount-input {
+          flex: 1;
+          padding: 0.8rem;
+          border: 1px solid #ddd;
+          border-radius: 6px 0 0 6px;
+          font-size: 1rem;
+          transition: border-color 0.2s;
+        }
+        
+        .amount-input:focus {
+          border-color: #0066cc;
+          outline: none;
+          box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.2);
+        }
+        
+        .currency-label {
+          padding: 0.8rem 1rem;
+          background-color: rgba(9, 132, 227, 0.1);
+          color: #0984e3;
+          font-weight: bold;
+          border-radius: 0 6px 6px 0;
+          border: 1px solid #ddd;
+          border-left: none;
         }
         
         .meta-validation {
@@ -2537,8 +2784,10 @@ const Home = () => {
           background-color: rgba(0, 0, 0, 0.7);
           color: white;
           display: flex;
-          align-items: center;
+          flex-direction: column;
           justify-content: center;
+          align-items: center;
+          padding: 10px;
           cursor: pointer;
           transition: background-color 0.3s, transform 0.2s;
           box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
