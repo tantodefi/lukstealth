@@ -1626,6 +1626,148 @@ const Home = () => {
     }
   };
 
+  // Add to CSS block in the component
+  useEffect(() => {
+    // Add any other CSS from existing component or the Home.css file
+    const css = `
+      .banner-profile {
+        margin: 20px auto;
+        max-width: 90%;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 5px;
+      }
+      
+      .banner-profile .profile-card {
+        background: white;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      }
+      
+      .banner-profile .profile-title h3,
+      .banner-profile .profile-bio,
+      .banner-profile .address-label,
+      .banner-profile .address-text,
+      .banner-profile .validation-text {
+        color: #333;
+      }
+      
+      .banner-profile .close-button.always-visible {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 24px;
+        height: 24px;
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        color: #333;
+        font-size: 18px;
+        cursor: pointer;
+        opacity: 1 !important;
+        transition: background 0.2s ease;
+      }
+      
+      .banner-profile .close-button.always-visible:hover {
+        background: rgba(0, 0, 0, 0.2);
+      }
+      
+      /* Payment controls in banner */
+      .payment-input-row {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        gap: 20px;
+        margin: 1rem 0;
+        align-items: center;
+      }
+      
+      .amount-input-container {
+        display: flex;
+        align-items: center;
+      }
+      
+      .payment-amount-input {
+        padding: 0.8rem;
+        border: 1px solid #ddd;
+        background: #f9f9f9;
+        color: #333;
+        border-radius: 6px 0 0 6px;
+        font-size: 1rem;
+        width: 60px;
+      }
+      
+      .currency-label {
+        padding: 0.8rem 1rem;
+        background-color: rgba(9, 132, 227, 0.1);
+        color: #0984e3;
+        font-weight: bold;
+        border-radius: 0 6px 6px 0;
+        border: 1px solid #ddd;
+        border-left: none;
+      }
+      
+      .payment-button {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        width: 100%;
+        background: #0984e3;
+        color: white;
+        border: none;
+        padding: 10px;
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+      
+      .payment-button:hover {
+        background: #0773c7;
+      }
+      
+      .payment-button:active {
+        transform: translateY(2px);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      }
+      
+      /* Original card styles to override if needed */
+      .close-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        font-size: 18px;
+        cursor: pointer;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        opacity: 0.7;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.1);
+        transition: opacity 0.2s ease, background 0.2s ease;
+      }
+      
+      .close-button:hover {
+        opacity: 1;
+        background: rgba(0, 0, 0, 0.2);
+      }
+    `;
+    
+    // Add the CSS to the document
+    const styleElement = document.createElement('style');
+    styleElement.textContent = css;
+    document.head.appendChild(styleElement);
+    
+    return () => {
+      // Clean up the style element when the component unmounts
+      document.head.removeChild(styleElement);
+    };
+  }, []);
+  
+  // Existing useEffect below...
+
   return (
     <div className="page-container">
       {/* Wallet Menu Button */}
@@ -1931,26 +2073,16 @@ const Home = () => {
       {/* Black Banner with White Text */}
       <div className="banner">
         <h1>LUKSO Stealth Payments</h1>
-        <p>Send and receive private payments on the LUKSO blockchain</p>
-      </div>
-
-      <div className="home-container">
-        {/* Debug element to always show if gridOwner exists */}
-        {gridOwner && !showGridOwnerCard && (
-          <div className="debug-info" style={{ padding: '10px', background: '#ffeeee', color: '#aa0000', fontSize: '12px', marginBottom: '15px' }}>
-            Debug: gridOwner exists but showGridOwnerCard is false
-          </div>
-        )}
         
-        {/* Grid Owner Profile Section - Only show when there's a grid owner */}
+        {/* Grid Owner Profile Section - Moved to header area */}
         {gridOwner && showGridOwnerCard && (
-          <div className="featured-profile">
+          <div className="featured-profile banner-profile">
             <div className="profile-container">
               {isLoadingGridOwner ? (
                 <div className="loading-profile">Loading profile...</div>
               ) : gridOwnerProfile ? (
                 <div className="profile-card">
-                  <div className="close-button" onClick={() => setShowGridOwnerCard(false)}>×</div>
+                  <div className="close-button always-visible" onClick={() => setShowGridOwnerCard(false)}>×</div>
                   <div className="profile-header">
                     {gridOwnerProfile.avatar ? (
                       <div className="avatar-container">
@@ -1996,50 +2128,21 @@ const Home = () => {
                           <span className="validation-text">Found in registry: <a href={`https://explorer.lukso.network/address/${LUKSO_MAINNET_ERC5564_REGISTRY}`} target="_blank" rel="noopener noreferrer" className="registry-address">{LUKSO_MAINNET_ERC5564_REGISTRY}</a></span>
                         </div>
                         
-                        <div style={{ 
-                          display: 'grid',
-                          gridTemplateColumns: '140px 1fr',
-                          gap: '20px', 
-                          margin: '1rem 0',
-                          alignItems: 'center'
-                        }}>
-                          <div style={{ 
-                            display: 'flex', 
-                            alignItems: 'center'
-                          }}>
+                        <div className="payment-input-row">
+                          <div className="amount-input-container">
                             <input
                               id="payment-amount"
                               type="number"
                               step="0.001"
                               min="0.001"
                               defaultValue="0.01"
-                              style={{
-                                padding: '0.8rem',
-                                border: '1px solid #ddd',
-                                borderRadius: '6px 0 0 6px',
-                                fontSize: '1rem',
-                                width: '60px'
-                              }}
+                              className="payment-amount-input"
                             />
-                            <div style={{
-                              padding: '0.8rem 1rem',
-                              backgroundColor: 'rgba(9, 132, 227, 0.1)',
-                              color: '#0984e3',
-                              fontWeight: 'bold',
-                              borderRadius: '0 6px 6px 0',
-                              border: '1px solid #ddd',
-                              borderLeft: 'none'
-                            }}>LYX</div>
+                            <div className="currency-label">LYX</div>
                           </div>
                           
                           <button 
                             className="payment-button"
-                            style={{ 
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              width: '100%'
-                            }}
                             onClick={() => {
                               const amount = (document.getElementById('payment-amount') as HTMLInputElement)?.value || "0.01";
                               sendPrivately(gridOwnerMetaAddress, amount);
@@ -2050,16 +2153,26 @@ const Home = () => {
                         </div>
                       </div>
                     ) : (
-                      <div className="no-meta-container">
-                        <p className="no-meta-text">No stealth meta address registered</p>
+                      <div className="no-meta-address">
+                        <p>No stealth meta address registered</p>
                       </div>
                     )}
                   </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="profile-error">Could not load profile</div>
+              )}
             </div>
           </div>
         )}
+        
+        <p>Send and receive private payments on the LUKSO blockchain</p>
+      </div>
+
+      <div className="home-container">
+        {/* Remove debug element */}
+        
+        {/* Removed Grid Owner Profile Section from here */}
       </div>
 
         {/* Main Description */}
