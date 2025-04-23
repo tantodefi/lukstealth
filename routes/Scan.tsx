@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link } from 'react-router-dom';
 import { UPProviderContext } from '../index';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, http, getContract } from 'viem';
 import { lukso } from 'viem/chains';
-import Web3 from 'web3';
+import { 
+  LUKSO_MAINNET_ERC5564_REGISTRY, 
+  LUKSO_MAINNET_ERC5564_ANNOUNCER, 
+  announcerABI 
+} from '../constants/contractData';
+import { computeStealthKey } from '../utils/crypto';
+import './Scan.css'; // Import the CSS file we'll create
 
 // Define RPC URL constant
 const RPC_URL = 'https://rpc.lukso.network';
@@ -24,6 +30,8 @@ interface StealthTransaction {
   amount: string;
   timestamp: number;
   status: 'pending' | 'withdrawn';
+  blockNumber?: bigint;
+  transactionHash?: string;
 }
 
 const Scan = () => {
@@ -47,12 +55,53 @@ const Scan = () => {
   const [scanComplete, setScanComplete] = useState<boolean>(false);
   const [scanSuccess, setScanSuccess] = useState<string | null>(null);
   const [withdrawSuccess, setWithdrawSuccess] = useState<string | null>(null);
+  const [publicClient, setPublicClient] = useState<any>(null);
 
   // Helper function to truncate addresses for display
   const truncateAddress = (address: string): string => {
     if (!address) return '';
     return `${address.substring(0, 8)}...${address.substring(address.length - 6)}`;
   };
+
+  // Initialize public client
+  useEffect(() => {
+    const initPublicClient = async () => {
+      try {
+        const client = createPublicClient({
+          chain: lukso,
+          transport: http(RPC_URL)
+        });
+        
+        // Test connection with a simple eth_blockNumber call
+        await client.getBlockNumber();
+        console.log(`Successfully connected to primary RPC: ${RPC_URL}`);
+        setPublicClient(client);
+      } catch (error) {
+        console.warn(`Failed to connect to primary RPC ${RPC_URL}:`, error);
+        
+        // Fall back to backup URLs
+        for (const rpcUrl of BACKUP_RPC_URLS) {
+          try {
+            console.log(`Trying backup RPC URL: ${rpcUrl}`);
+            const client = createPublicClient({
+              chain: lukso,
+              transport: http(rpcUrl)
+            });
+            
+            // Test connection with a simple eth_blockNumber call
+            await client.getBlockNumber();
+            console.log(`Successfully connected to backup RPC: ${rpcUrl}`);
+            setPublicClient(client);
+            break;
+          } catch (error) {
+            console.warn(`Failed to connect to ${rpcUrl}:`, error);
+          }
+        }
+      }
+    };
+    
+    initPublicClient();
+  }, []);
 
   // Effect to show connection status
   useEffect(() => {
@@ -125,6 +174,43 @@ const Scan = () => {
     }
   };
 
+  // Get the stealth address from ephemeral key and private keys
+  const deriveStealthAddress = (ephemeralPublicKey: string, viewingPrivateKey: string, spendingPrivateKey: string) => {
+    try {
+      // Use the compute stealth key utility from crypto.ts
+      const privateKey = computeStealthKey({
+        schemeId: 1, // Use standard scheme ID
+        ephemeralPublicKey,
+        viewingPrivateKey,
+        spendingPrivateKey
+      });
+      
+      // In a real implementation, this would derive the address from the private key
+      // For now, we'll just return a placeholder
+      return {
+        address: '0x' + privateKey.substring(2, 42),
+        privateKey
+      };
+    } catch (error) {
+      console.error('Error deriving stealth address:', error);
+      return null;
+    }
+  };
+
+  // Get Ether balance for address
+  const getEtherBalance = async (address: string): Promise<string> => {
+    if (!publicClient) return '0';
+    
+    try {
+      const balance = await publicClient.getBalance({ address: address as `0x${string}` });
+      // Convert balance from wei to ether
+      return balance ? (Number(balance) / 1e18).toFixed(6) + ' LYX' : '0 LYX';
+    } catch (error) {
+      console.error('Error getting balance:', error);
+      return '0 LYX';
+    }
+  };
+
   // Handle scanning for payments
   const handleScan = async (key = viewingKey) => {
     try {
@@ -137,57 +223,83 @@ const Scan = () => {
         throw new Error('Viewing key is required');
       }
       
+      if (!publicClient) {
+        throw new Error('Connection to LUKSO network not available');
+      }
+      
       // Connect to wallet first
       await connectWallet();
       
-      // Create a Viem public client for LUKSO
-      const client = createPublicClient({
-        chain: lukso,
-        transport: http(RPC_URL)
-      });
-      
       console.log('Scanning for stealth transactions...');
       
-      // In a real implementation, we would:
-      // 1. Get the stealth meta-address derived from the viewing key
-      // 2. Query the ERC5564 Announcer contract events
-      // 3. Decode announcements and check if they are for our stealth address
+      // Get the block number 30 days ago (approximate)
+      const currentBlock = await publicClient.getBlockNumber();
+      const blocksPerDay = BigInt(7200); // ~7200 blocks per day on LUKSO
+      const lookbackBlocks = blocksPerDay * BigInt(30); // 30 days
+      const fromBlock = currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : BigInt(0);
       
-      // For demo purposes, we're using mock data
-      setTimeout(() => {
-        // Generate dynamic mock data
-        const mockTransactions: StealthTransaction[] = [
-          {
-            id: '0x' + Math.random().toString(16).substring(2, 34) + Math.random().toString(16).substring(2, 34),
-            stealthAddress: '0x' + Math.random().toString(16).substring(2, 42),
-            ephemeralPublicKey: '0x02' + Math.random().toString(16).substring(2, 66),
-            amount: (Math.random() * 5).toFixed(3) + ' LYX',
-            timestamp: Date.now() - Math.floor(Math.random() * 7 * 86400000), // Random time in the last week
-            status: 'pending'
-          },
-          {
-            id: '0x' + Math.random().toString(16).substring(2, 34) + Math.random().toString(16).substring(2, 34),
-            stealthAddress: '0x' + Math.random().toString(16).substring(2, 42),
-            ephemeralPublicKey: '0x03' + Math.random().toString(16).substring(2, 66),
-            amount: (Math.random() * 5).toFixed(3) + ' LYX',
-            timestamp: Date.now() - Math.floor(Math.random() * 7 * 86400000), // Random time in the last week
-            status: 'pending'
-          },
-          {
-            id: '0x' + Math.random().toString(16).substring(2, 34) + Math.random().toString(16).substring(2, 34),
-            stealthAddress: '0x' + Math.random().toString(16).substring(2, 42),
-            ephemeralPublicKey: '0x03' + Math.random().toString(16).substring(2, 66),
-            amount: (Math.random() * 5).toFixed(3) + ' LYX',
-            timestamp: Date.now() - Math.floor(Math.random() * 7 * 86400000), // Random time in the last week
-            status: 'withdrawn'
+      // Get all Announcement events
+      const events = await publicClient.getLogs({
+        address: LUKSO_MAINNET_ERC5564_ANNOUNCER as `0x${string}`,
+        event: {
+          type: 'event',
+          name: 'Announcement',
+          inputs: [
+            { indexed: true, name: 'schemeId', type: 'address' },
+            { indexed: true, name: 'caller', type: 'address' },
+            { indexed: false, name: 'announcement', type: 'bytes' }
+          ]
+        },
+        fromBlock,
+        toBlock: 'latest'
+      });
+      
+      console.log(`Found ${events.length} announcement events`);
+      
+      // Process the events
+      const foundTransactions: StealthTransaction[] = [];
+      
+      for (const event of events) {
+        try {
+          // Extract announcement data from the event
+          const announcement = event.args.announcement as string;
+          
+          // Decode the announcement (typical format: stealthAddress (20 bytes) + ephemeralPublicKey (33+ bytes))
+          if (announcement.length < 106) continue; // Minimum length check (20 bytes address + 33 bytes key)
+          
+          const stealthAddress = '0x' + announcement.slice(2, 42); // First 20 bytes
+          const ephemeralPublicKey = '0x' + announcement.slice(42); // Remaining bytes
+          
+          // In a real implementation, we would:
+          // 1. Use the viewing key and ephemeral key to check if this payment is for us
+          // 2. If it is, compute the private key and get the balance
+          
+          // For now, we'll just add all announcements we find
+          const balance = await getEtherBalance(stealthAddress);
+          
+          // Only add transactions with a positive balance
+          if (balance !== '0 LYX') {
+            foundTransactions.push({
+              id: event.transactionHash,
+              stealthAddress,
+              ephemeralPublicKey,
+              amount: balance,
+              timestamp: Number((await publicClient.getBlock({ blockHash: event.blockHash })).timestamp),
+              status: 'pending',
+              blockNumber: event.blockNumber,
+              transactionHash: event.transactionHash
+            });
           }
-        ];
-        
-        setTransactions(mockTransactions);
-        setIsScanning(false);
-        setScanComplete(true);
-        setScanSuccess(`Scan complete! Found ${mockTransactions.length} stealth payment(s).`);
-      }, 2000);
+        } catch (error) {
+          console.error('Error processing announcement:', error);
+          // Continue with the next announcement
+        }
+      }
+      
+      setTransactions(foundTransactions);
+      setIsScanning(false);
+      setScanComplete(true);
+      setScanSuccess(`Scan complete! Found ${foundTransactions.length} stealth payment(s).`);
     } catch (error: any) {
       console.error('Error scanning for transactions:', error);
       setError(`Error scanning: ${error.message || 'Unknown error'}`);
@@ -222,12 +334,42 @@ const Scan = () => {
       
       console.log(`Withdrawing from stealth address ${transaction.stealthAddress}...`);
       
-      // In a real implementation, we would:
-      // 1. Use the spending key and ephemeral public key to derive the private key for the stealth address
-      // 2. Create and sign a transaction to send funds from the stealth address to the user's main address
-      // 3. Broadcast the transaction to the network
+      // Derive the private key for the stealth address
+      const stealthAddressInfo = deriveStealthAddress(
+        transaction.ephemeralPublicKey,
+        viewingKey,
+        spendingKey
+      );
       
-      // For demo purposes, we'll just update the UI
+      if (!stealthAddressInfo) {
+        throw new Error('Failed to derive stealth address from keys');
+      }
+      
+      console.log('Derived stealth address:', stealthAddressInfo.address);
+      
+      // If the derived address doesn't match the transaction address, show an error
+      if (stealthAddressInfo.address.toLowerCase() !== transaction.stealthAddress.toLowerCase()) {
+        throw new Error('Derived stealth address does not match the transaction. Check your keys.');
+      }
+      
+      // Get the balance of the stealth address
+      const balance = await publicClient.getBalance({ 
+        address: transaction.stealthAddress as `0x${string}` 
+      });
+      
+      if (balance <= BigInt(0)) {
+        throw new Error('No funds found at this stealth address');
+      }
+      
+      // Import the private key to the wallet for signing
+      // This would typically be handled by a separate signing utility
+      // For now, we'll just simulate the withdraw
+      
+      // In a real implementation:
+      // 1. Use the private key to sign a transaction sending funds to the user's main address
+      // 2. Broadcast the transaction to the network
+      
+      // For demonstration, we'll simulate a successful withdrawal
       setTimeout(() => {
         setTransactions(
           transactions.map(tx => 
@@ -350,641 +492,81 @@ const Scan = () => {
             
             <button 
               onClick={() => handleScan()}
-              disabled={isScanning || !viewingKey.trim()}
-              className="scan-button"
+              disabled={isScanning || !viewingKey}
+              className={`scan-button ${isScanning || !viewingKey ? 'disabled' : ''}`}
             >
-              {isScanning ? (
-                <>
-                  <span className="spinner"></span>
-                  <span>Scanning...</span>
-                </>
-              ) : (
-                <>🥷 Scan for Stealth Payments</>
-              )}
+              {isScanning ? 'Scanning...' : 'Scan for Payments'}
             </button>
           </div>
         </div>
         
-        {/* Transaction List */}
+        {/* Results section */}
         {scanComplete && (
-          <div className="transaction-section">
-            <h2>{transactions.length > 0 ? "Found Stealth Payments" : "No Transactions Found"}</h2>
-            
+          <div className="results-section">
+            <h2>Scan Results</h2>
             {transactions.length > 0 ? (
-              <div className="transaction-list">
-                {transactions.map(transaction => (
-                  <div key={transaction.id} className="transaction-card">
-                    <div className="transaction-details">
-                      <div className="transaction-amount">
-                        {transaction.amount}
-                      </div>
-                      
-                      <div className="transaction-date">
-                        <strong>Received:</strong> {formatDate(transaction.timestamp)}
-                      </div>
-                      
-                      <div className="transaction-address">
-                        <strong>Stealth Address:</strong> <span className="address-text">{truncateAddress(transaction.stealthAddress)}</span>
-                      </div>
-                      
-                      <div className="transaction-key truncate">
-                        <strong>Ephemeral Key:</strong> <span className="key-text">{truncateAddress(transaction.ephemeralPublicKey)}</span>
-                      </div>
-                      
-                      <div className="transaction-status">
-                        <strong>Status:</strong> <span className={`status-badge ${transaction.status}`}>
-                          {transaction.status === 'pending' ? '🔓 Available to Withdraw' : '✅ Withdrawn'}
-                        </span>
-                      </div>
+              <div className="transactions-list">
+                {transactions.map((tx) => (
+                  <div key={tx.id} className={`transaction-card ${tx.status === 'withdrawn' ? 'withdrawn' : ''}`}>
+                    <div className="transaction-header">
+                      <span className="transaction-amount">{tx.amount}</span>
+                      <span className={`transaction-status ${tx.status}`}>
+                        {tx.status === 'withdrawn' ? 'Withdrawn' : 'Pending'}
+                      </span>
                     </div>
                     
-                    <button 
-                      onClick={() => handleWithdraw(transaction)}
-                      disabled={transaction.status === 'withdrawn' || isWithdrawing[transaction.id] || !spendingKey}
-                      className={`transaction-button ${transaction.status === 'withdrawn' ? 'withdrawn' : ''}`}
-                    >
-                      {isWithdrawing[transaction.id] ? (
-                        <>
-                          <span className="spinner"></span>
-                          <span>Withdrawing...</span>
-                        </>
-                      ) : transaction.status === 'withdrawn' ? (
-                        '✓ Withdrawn'
-                      ) : (
-                        '🥷 Withdraw Funds'
+                    <div className="transaction-details">
+                      <div className="detail-row">
+                        <span className="detail-label">Stealth Address:</span>
+                        <span className="detail-value address">{truncateAddress(tx.stealthAddress)}</span>
+                      </div>
+                      
+                      <div className="detail-row">
+                        <span className="detail-label">Date:</span>
+                        <span className="detail-value">{formatDate(tx.timestamp)}</span>
+                      </div>
+                      
+                      <div className="detail-row">
+                        <span className="detail-label">Ephemeral Key:</span>
+                        <span className="detail-value address">{truncateAddress(tx.ephemeralPublicKey)}</span>
+                      </div>
+                      
+                      {tx.blockNumber !== undefined && (
+                        <div className="detail-row">
+                          <span className="detail-label">Block:</span>
+                          <span className="detail-value">{tx.blockNumber.toString()}</span>
+                        </div>
                       )}
-                    </button>
+                    </div>
+                    
+                    <div className="transaction-actions">
+                      <button 
+                        onClick={() => handleWithdraw(tx)}
+                        disabled={isWithdrawing[tx.id] || tx.status === 'withdrawn' || !spendingKey}
+                        className={`withdraw-button ${isWithdrawing[tx.id] || tx.status === 'withdrawn' || !spendingKey ? 'disabled' : ''}`}
+                      >
+                        {isWithdrawing[tx.id] 
+                          ? 'Withdrawing...' 
+                          : tx.status === 'withdrawn'
+                          ? 'Withdrawn'
+                          : 'Withdraw Funds'}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="no-transactions">
-                <p>No stealth payments found for this viewing key.</p>
+              <div className="no-results">
+                <p>No stealth payments found. Try scanning again later or check your viewing key.</p>
               </div>
             )}
           </div>
         )}
         
-        {/* Navigation Links */}
-        <div className="navigation-links">
-          <Link to="/" className="back-link">
-            ← Back to Home
-          </Link>
-          <Link to="/receive" className="action-link">
-            Create a Stealth Address →
-          </Link>
+        <div className="back-link">
+          <Link to="/">← Back to Home</Link>
         </div>
       </div>
-      
-      {/* CSS Styles */}
-      <style>{`
-        .page-container {
-          width: 100%;
-          max-width: 100%;
-          margin: 0;
-          padding: 0;
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-        }
-        
-        .banner {
-          background-color: #000;
-          color: white;
-          padding: 3rem 2rem;
-          text-align: center;
-          margin-bottom: 2rem;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-        }
-        
-        .banner h1 {
-          font-size: 2.5rem;
-          margin: 0 0 1rem 0;
-          font-weight: 700;
-        }
-        
-        .banner p {
-          font-size: 1.2rem;
-          margin: 0;
-          opacity: 0.9;
-        }
-        
-        .home-container {
-          max-width: 900px;
-          margin: 0 auto 4rem;
-          padding: 0 1.5rem;
-        }
-        
-        .main-description {
-          margin-bottom: 2rem;
-          background-color: #f8f9fa;
-          padding: 2rem;
-          border-radius: 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        
-        .main-description h2 {
-          font-size: 1.5rem;
-          margin-top: 0;
-          margin-bottom: 1rem;
-          color: #333;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        
-        .main-description p {
-          font-size: 1.1rem;
-          line-height: 1.6;
-          color: #555;
-          margin: 0;
-        }
-        
-        .status-section {
-          margin-bottom: 2rem;
-        }
-        
-        .status-section h2 {
-          font-size: 1.5rem;
-          margin: 0 0 1rem 0;
-          color: #333;
-        }
-        
-        .status-card {
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-          padding: 1.5rem;
-        }
-        
-        .status-content {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        
-        .status-info p {
-          margin: 0.5rem 0;
-          font-size: 0.95rem;
-          color: #666;
-        }
-        
-        .status-available {
-          color: #28a745;
-          font-weight: 500;
-        }
-        
-        .status-unavailable {
-          color: #dc3545;
-          font-weight: 500;
-        }
-        
-        .connect-button {
-          padding: 0.7rem 1.2rem;
-          border: none;
-          background-color: #0066cc;
-          color: white;
-          border-radius: 6px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        
-        .connect-button:hover:not(:disabled) {
-          background-color: #0055aa;
-        }
-        
-        .connect-button:disabled {
-          background-color: #bbb;
-          cursor: not-allowed;
-        }
-        
-        .error-container {
-          padding: 1.2rem;
-          background: #fff8f8;
-          border-left: 4px solid #dc3545;
-          border-radius: 4px;
-          margin-bottom: 2rem;
-        }
-        
-        .error-message {
-          color: #dc3545;
-          margin: 0;
-          font-size: 0.95rem;
-        }
-        
-        .success-container {
-          padding: 1.2rem;
-          background: #f1fffa;
-          border-left: 4px solid #28a745;
-          border-radius: 4px;
-          margin-bottom: 2rem;
-        }
-        
-        .success-container.withdraw-success {
-          background: #f0f9ff;
-          border-left-color: #0066cc;
-        }
-        
-        .success-message {
-          color: #28a745;
-          margin: 0;
-          font-size: 0.95rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        
-        .withdraw-success .success-message {
-          color: #0066cc;
-        }
-        
-        .scan-form-section {
-          margin-bottom: 2rem;
-        }
-        
-        .scan-form-section h2 {
-          font-size: 1.5rem;
-          margin: 0 0 1rem 0;
-          color: #333;
-        }
-        
-        .form-card {
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-          padding: 1.5rem;
-          margin-bottom: 2rem;
-          border: 1px solid #eaeaea;
-        }
-        
-        .form-group {
-          margin-bottom: 1.5rem;
-        }
-        
-        .form-label {
-          display: block;
-          margin-bottom: 0.5rem;
-          font-weight: 500;
-          color: #333;
-        }
-        
-        .form-input {
-          width: 100%;
-          padding: 0.8rem;
-          border: 1px solid #ddd;
-          border-radius: 6px;
-          font-size: 1rem;
-          font-family: monospace;
-          transition: border-color 0.2s;
-          background-color: #f8f9fa;
-        }
-        
-        .form-input:focus {
-          border-color: #0066cc;
-          outline: none;
-          box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.2);
-          background-color: #fff;
-        }
-        
-        .form-help {
-          font-size: 0.85rem;
-          color: #666;
-          margin: 0.5rem 0 0 0;
-        }
-        
-        .scan-button {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          padding: 1rem 1.5rem;
-          border: none;
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-          color: white;
-          border-radius: 8px;
-          font-weight: 600;
-          font-size: 1.1rem;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          width: 100%;
-          max-width: 350px;
-          margin: 1.5rem auto 0;
-          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .scan-button:before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
-          opacity: 0;
-          z-index: -1;
-          transition: opacity 0.3s ease;
-        }
-        
-        .scan-button:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
-        }
-        
-        .scan-button:hover:not(:disabled):before {
-          opacity: 1;
-        }
-        
-        .scan-button:active:not(:disabled) {
-          transform: translateY(1px);
-          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
-        }
-        
-        .scan-button:disabled {
-          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
-          cursor: not-allowed;
-          box-shadow: none;
-          opacity: 0.7;
-        }
-        
-        .spinner {
-          display: inline-block;
-          width: 1rem;
-          height: 1rem;
-          border: 2px solid rgba(255, 255, 255, 0.3);
-          border-radius: 50%;
-          border-top-color: white;
-          animation: spin 1s ease-in-out infinite;
-          margin-right: 0.5rem;
-        }
-        
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-        
-        .transaction-section {
-          margin-bottom: 2rem;
-          background-color: #f8f9fa;
-          padding: 2rem;
-          border-radius: 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        }
-        
-        .transaction-section h2 {
-          font-size: 1.5rem;
-          margin: 0 0 1.5rem 0;
-          color: #333;
-          border-bottom: 1px solid #e9ecef;
-          padding-bottom: 0.75rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }
-        
-        .transaction-section h2:before {
-          content: '🥷';
-          display: inline-block;
-        }
-        
-        .transaction-list {
-          display: grid;
-          grid-template-columns: 1fr;
-          gap: 1.2rem;
-        }
-        
-        .transaction-card {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-          padding: 1.5rem;
-          transition: transform 0.2s, box-shadow 0.2s;
-          flex-wrap: wrap;
-          border-left: 4px solid #28a745;
-          position: relative;
-          overflow: hidden;
-        }
-        
-        .transaction-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(0,0,0,0.08);
-        }
-        
-        .transaction-details {
-          flex: 1;
-          min-width: 250px;
-        }
-        
-        .transaction-amount {
-          font-size: 1.5rem;
-          font-weight: 600;
-          color: #333;
-          margin-bottom: 0.7rem;
-          display: flex;
-          align-items: center;
-        }
-        
-        .transaction-amount:before {
-          content: '🥷';
-          display: inline-block;
-          margin-right: 0.4rem;
-          font-size: 1.4rem;
-        }
-        
-        .transaction-date,
-        .transaction-address,
-        .transaction-key,
-        .transaction-status {
-          font-size: 0.95rem;
-          color: #555;
-          margin-bottom: 0.6rem;
-          display: flex;
-          align-items: center;
-          flex-wrap: wrap;
-          gap: 0.4rem;
-        }
-        
-        .transaction-date strong,
-        .transaction-address strong,
-        .transaction-key strong,
-        .transaction-status strong {
-          color: #333;
-          min-width: 110px;
-        }
-        
-        .address-text,
-        .key-text {
-          font-family: monospace;
-          background-color: #f8f9fa;
-          padding: 0.3rem 0.5rem;
-          border-radius: 4px;
-          font-size: 0.9rem;
-        }
-        
-        .status-badge {
-          display: inline-block;
-          padding: 0.25rem 0.7rem;
-          border-radius: 4px;
-          font-size: 0.85rem;
-          font-weight: 500;
-        }
-        
-        .status-badge.pending {
-          background-color: rgba(40, 167, 69, 0.1);
-          color: #28a745;
-        }
-        
-        .status-badge.withdrawn {
-          background-color: rgba(108, 117, 125, 0.1);
-          color: #6c757d;
-        }
-        
-        .transaction-button {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 0.5rem;
-          padding: 0.8rem 1.4rem;
-          border: none;
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-          color: white;
-          border-radius: 8px;
-          font-weight: 600;
-          font-size: 1rem;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
-          position: relative;
-          overflow: hidden;
-          margin-top: 1rem;
-        }
-        
-        .transaction-button:before {
-          content: '';
-          position: absolute;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background: linear-gradient(135deg, #20c997 0%, #28a745 100%);
-          opacity: 0;
-          z-index: -1;
-          transition: opacity 0.3s ease;
-        }
-        
-        .transaction-button:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 15px rgba(40, 167, 69, 0.4);
-        }
-        
-        .transaction-button:hover:not(:disabled):before {
-          opacity: 1;
-        }
-        
-        .transaction-button:active:not(:disabled) {
-          transform: translateY(1px);
-          box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
-        }
-        
-        .transaction-button:disabled {
-          background: linear-gradient(135deg, #adadad 0%, #d4d4d4 100%);
-          cursor: not-allowed;
-          box-shadow: none;
-          opacity: 0.7;
-        }
-        
-        .transaction-button.withdrawn {
-          background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-          box-shadow: 0 4px 10px rgba(108, 117, 125, 0.3);
-        }
-        
-        .no-transactions {
-          background: #f9f9f9;
-          padding: 2rem;
-          text-align: center;
-          border-radius: 12px;
-          color: #666;
-          border: 1px dashed #ccc;
-        }
-        
-        .navigation-links {
-          display: flex;
-          justify-content: space-between;
-          margin-top: 2rem;
-        }
-        
-        .back-link,
-        .action-link {
-          color: #0066cc;
-          text-decoration: none;
-          font-weight: 500;
-          transition: color 0.2s, transform 0.2s;
-          display: inline-block;
-        }
-        
-        .back-link:hover,
-        .action-link:hover {
-          color: #0055aa;
-          text-decoration: underline;
-        }
-        
-        .back-link:hover {
-          transform: translateX(-3px);
-        }
-        
-        .action-link:hover {
-          transform: translateX(3px);
-        }
-        
-        .truncate {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 100%;
-        }
-        
-        /* Media Queries */
-        @media (max-width: 768px) {
-          .banner {
-            padding: 2rem 1rem;
-          }
-          
-          .banner h1 {
-            font-size: 2rem;
-          }
-          
-          .transaction-card {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          
-          .transaction-button {
-            margin-top: 1rem;
-            align-self: flex-end;
-            width: 100%;
-          }
-          
-          .status-content {
-            flex-direction: column;
-            align-items: flex-start;
-          }
-          
-          .connect-button {
-            margin-top: 1rem;
-            width: 100%;
-          }
-        }
-        
-        @media (min-width: 769px) {
-          .transaction-button {
-            align-self: center;
-          }
-        }
-      `}</style>
     </div>
   );
 };

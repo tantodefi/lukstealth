@@ -10,7 +10,6 @@ import { createClientUPProvider } from '@lukso/up-provider';
 import Home from './routes/Home';
 import Send from './routes/Send';
 import Receive from './routes/Receive';
-import Withdraw from './routes/Withdraw';
 import Scan from './routes/Scan';
 import DeveloperMode from './routes/DeveloperMode';
 import Layout from './components/Layout';
@@ -589,7 +588,6 @@ const App = () => {
                 <Route path="/" element={<Home />} />
                 <Route path="/send" element={<Send />} />
                 <Route path="/receive" element={<Receive />} />
-                <Route path="/withdraw" element={<Withdraw />} />
                 <Route path="/scan" element={<Scan />} />
                 <Route path="/developer-mode" element={<DeveloperMode />} />
               </Route>
