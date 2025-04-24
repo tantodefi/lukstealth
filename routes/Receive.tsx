@@ -1,46 +1,23 @@
-import React, { useState, useEffect, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { getSignature, generateKeysFromSignature } from '../utils/crypto';
 import { encodeFunctionData } from 'viem';
-import { createPublicClient, http, custom } from 'viem';
-import { lukso, RPC_URL, UPProviderContext } from '../index';
+import { createPublicClient, http } from 'viem';
+import { lukso } from 'viem/chains';
 import { generateStealthAddress } from '../utils/crypto';
-
-// Registry Contract info
-const LUKSO_MAINNET_ERC5564_REGISTRY = '0x4E581D6a88bc7D60D092673904d961B6b0961A40';
-const LUKSO_MAINNET_ERC5564_ANNOUNCER = '0x8653F395983827E05A6625eED4D045e696980D16';
-
-// ABIs
-const ERC5564_REGISTRY_ABI = [
-  {
-    inputs: [
-      { internalType: 'string', name: 'stealthMetaAddress', type: 'string' }
-    ],
-    name: 'setStealthMetaAddress',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function'
-  }
-];
-
-const ERC5564_ANNOUNCER_ABI = [
-  {
-    inputs: [
-      { internalType: 'uint256', name: 'schemeId', type: 'uint256' },
-      { internalType: 'address', name: 'stealthAddress', type: 'address' },
-      { internalType: 'bytes', name: 'ephemeralPubKey', type: 'bytes' },
-      { internalType: 'bytes', name: 'metadata', type: 'bytes' }
-    ],
-    name: 'announce',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function'
-  }
-];
+import { 
+  LUKSO_MAINNET_ERC5564_REGISTRY, 
+  LUKSO_MAINNET_ERC5564_ANNOUNCER,
+  registryABI as ERC5564_REGISTRY_ABI,
+  announcerABI as ERC5564_ANNOUNCER_ABI
+} from '../constants/contractData';
+import { useUpProvider } from '../upProvider';
+import ERC725, { ERC725JSONSchema } from '@erc725/erc725.js';
 
 // Constants
 const MESSAGE_TO_SIGN = "Sign this message to generate your stealth address keys. This provides access to your stealth address.";
 const SCHEME_ID_VALUE = 1n;
+const RPC_URL = import.meta.env?.VITE_RPC_URL || 'https://rpc.lukso.sigmacore.io';
 
 // Declare window.lukso for Universal Profile support
 declare global {
@@ -51,15 +28,13 @@ declare global {
 }
 
 const Receive = () => {
-  // Get UP provider context
+  // Get UP provider context using the new hook
   const { 
-    isLuksoUP, 
-    upProvider, 
-    isInitializing: isUPInitializing, 
-    upAccounts,
-    connect: connectUP,
-    controllers
-  } = useContext(UPProviderContext);
+    provider, 
+    accounts, 
+    contextAccounts,
+    walletConnected
+  } = useUpProvider();
   
   const [stealthMetaAddress, setStealthMetaAddress] = useState<string>('');
   const [stealthAddress, setStealthAddress] = useState<string>('');
@@ -75,32 +50,32 @@ const Receive = () => {
   const [isAnnouncing, setIsAnnouncing] = useState<boolean>(false);
   const [announcementStatus, setAnnouncementStatus] = useState<string>('');
   
-  // Status message during UP initialization
+  // Status message during provider initialization
   const [connectionMessage, setConnectionMessage] = useState<string>('');
   
   // Effect to show connection status
   useEffect(() => {
-    if (isUPInitializing) {
-      setConnectionMessage('Initializing LUKSO UP provider...');
-    } else if (isLuksoUP) {
-      setConnectionMessage('LUKSO UP provider initialized');
-      
-      if (upAccounts.length > 0) {
-        setConnectionMessage(`Connected to LUKSO UP: ${upAccounts[0]}`);
-      } else {
-        setConnectionMessage('LUKSO UP provider ready. Click Generate to connect.');
-      }
+    if (!provider) {
+      setConnectionMessage('Initializing LUKSO provider...');
     } else {
-      setConnectionMessage('LUKSO UP not detected. Will use MetaMask or other standard wallet if available.');
+      if (accounts.length > 0) {
+        setConnectionMessage(`Connected to wallet: ${accounts[0]}`);
+      } else if (contextAccounts.length > 0) {
+        setConnectionMessage(`Context account detected: ${contextAccounts[0]}`);
+      } else if (walletConnected) {
+        setConnectionMessage('Wallet detected');
+      } else {
+        setConnectionMessage('Wallet provider ready. Click Generate to connect.');
+      }
     }
-  }, [isLuksoUP, isUPInitializing, upAccounts]);
+  }, [provider, accounts, contextAccounts, walletConnected]);
   
   // Get accounts with retry logic to handle rate limits
   const getAccounts = async (): Promise<string[]> => {
-    // Use cached accounts if available to reduce requests
-    if (upAccounts && upAccounts.length > 0) {
-      console.log('Using cached accounts:', upAccounts);
-      return upAccounts;
+    // Use existing accounts if available
+    if (accounts && accounts.length > 0) {
+      console.log('Using existing accounts:', accounts);
+      return accounts as string[];
     }
     
     const MAX_RETRIES = 3;
@@ -138,35 +113,15 @@ const Receive = () => {
       }
     };
     
-    // Check if LUKSO UP is available
-    const checkLuksoUPAvailability = async (): Promise<boolean> => {
-      try {
-        return !!(window as any).lukso;
-      } catch (error) {
-        console.error('Error checking LUKSO UP availability:', error);
-        return false;
-      }
-    };
-    
-    const luksoUpAvailable = await checkLuksoUPAvailability();
-    // Use the existing isLuksoUP from context instead of trying to set it
-    const useUPProvider = luksoUpAvailable && isLuksoUP;
-    
-    if (useUPProvider) {
-      console.log('LUKSO UP detected, using it for account retrieval');
-      return executeWithRetry(async () => {
-        const accounts = await (window as any).lukso.request({ method: 'eth_requestAccounts' });
-        console.log('LUKSO UP accounts:', accounts);
-        return accounts;
-      });
-    } else {
-      console.log('Using standard Ethereum provider');
-      return executeWithRetry(async () => {
-        const accounts = await (window as any).ethereum.request({ method: 'eth_requestAccounts' });
-        console.log('Ethereum accounts:', accounts);
-        return accounts;
-      });
+    if (!provider) {
+      throw new Error('No provider available');
     }
+    
+    return executeWithRetry(async () => {
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
+      console.log('Provider accounts:', accounts);
+      return accounts;
+    });
   };
 
   // Generate stealth address - with improved error handling
@@ -176,24 +131,15 @@ const Receive = () => {
       setError(null);
       
       // Get wallet accounts with retry logic
-      let accounts;
+      let walletAccounts;
       try {
-        // Try using the connect function from context first if we're using LUKSO UP
-        if (isLuksoUP) {
-          console.log('Trying to connect via UPProviderContext...');
-          accounts = await connectUP();
-        }
+        walletAccounts = await getAccounts();
         
-        // If no accounts from context or not using LUKSO UP, try the local getAccounts method
-        if (!accounts || accounts.length === 0) {
-          accounts = await getAccounts();
-        }
-        
-        if (!accounts || accounts.length === 0) {
+        if (!walletAccounts || walletAccounts.length === 0) {
           throw new Error('No connected wallet accounts found');
         }
         
-        console.log(`Using ${isLuksoUP ? 'LUKSO UP' : 'standard wallet'} with account: ${accounts[0]}`);
+        console.log(`Using account: ${walletAccounts[0]}`);
       } catch (accountError: any) {
         console.error('Failed to get accounts:', accountError);
         throw new Error(`Failed to connect to wallet: ${accountError?.message || 'Unknown error'}`);
@@ -206,7 +152,6 @@ const Receive = () => {
         // Add a small delay before requesting signature to avoid rate limits
         await new Promise(resolve => setTimeout(resolve, 300));
         
-        const provider = isLuksoUP ? window.lukso : window.ethereum;
         if (!provider) {
           throw new Error('No web3 provider available');
         }
@@ -290,35 +235,16 @@ const Receive = () => {
       }
       
       // Ensure we have a connection to the wallet
-      let accounts;
-      try {
-        // Try using the connect function from context first if we're using LUKSO UP
-        if (isLuksoUP) {
-          console.log('Trying to connect via UPProviderContext...');
-          accounts = await connectUP();
-        }
-        
-        // If no accounts from context or not using LUKSO UP, try the local getAccounts method
-        if (!accounts || accounts.length === 0) {
-          accounts = await getAccounts();
-        }
-        
-        console.log("Connected accounts:", accounts);
-        
-        if (!accounts || accounts.length === 0) {
-          throw new Error('No connected accounts found');
-        }
-      } catch (connectionError) {
-        console.error("Wallet connection error:", connectionError);
-        throw new Error(`Failed to connect to wallet: ${connectionError instanceof Error ? connectionError.message : 'Unknown error'}`);
+      const walletAccounts = await getAccounts();
+      
+      if (!walletAccounts || walletAccounts.length === 0) {
+        throw new Error('No connected accounts found');
       }
       
       setRegistrationStatus('Preparing transaction...');
       
-      // Get provider - approach from developer mode
-      const provider = isLuksoUP ? window.lukso : window.ethereum;
       if (!provider) {
-        throw new Error(`${isLuksoUP ? 'LUKSO UP' : 'Ethereum'} provider not found`);
+        throw new Error('Provider not found');
       }
       
       console.log("Registering meta address:", stealthMetaAddress);
@@ -332,13 +258,13 @@ const Receive = () => {
       });
       
       setRegistrationStatus('Waiting for wallet approval...');
-      console.log("Sending transaction from account:", accounts[0]);
+      console.log("Sending transaction from account:", walletAccounts[0]);
       
       // Send transaction using the standard eth_sendTransaction method
       const hash = await provider.request({
         method: 'eth_sendTransaction',
         params: [{
-          from: accounts[0],
+          from: walletAccounts[0],
           to: LUKSO_MAINNET_ERC5564_REGISTRY,
           data,
         }]
@@ -400,33 +326,15 @@ const Receive = () => {
       }
       
       // Ensure we have a connection to the wallet
-      let accounts;
-      try {
-        // Try using the connect function from context first if we're using LUKSO UP
-        if (isLuksoUP) {
-          console.log('Trying to connect via UPProviderContext...');
-          accounts = await connectUP();
-        }
-        
-        // If no accounts from context or not using LUKSO UP, try the local getAccounts method
-        if (!accounts || accounts.length === 0) {
-          accounts = await getAccounts();
-        }
-        
-        console.log("Connected accounts:", accounts);
-        
-        if (!accounts || accounts.length === 0) {
-          throw new Error('No connected accounts found');
-        }
-      } catch (connectionError) {
-        console.error("Wallet connection error:", connectionError);
-        throw new Error(`Failed to connect to wallet: ${connectionError instanceof Error ? connectionError.message : 'Unknown error'}`);
+      const walletAccounts = await getAccounts();
+      
+      if (!walletAccounts || walletAccounts.length === 0) {
+        throw new Error('No connected accounts found');
       }
       
       // Get provider
-      const provider = isLuksoUP ? window.lukso : window.ethereum;
       if (!provider) {
-        throw new Error(`${isLuksoUP ? 'LUKSO UP' : 'Ethereum'} provider not found`);
+        throw new Error('Provider not found');
       }
       
       // Make sure the ephemeral public key is a valid hex string
@@ -458,13 +366,13 @@ const Receive = () => {
       });
       
       setAnnouncementStatus('Waiting for wallet approval...');
-      console.log("Sending transaction from account:", accounts[0]);
+      console.log("Sending transaction from account:", walletAccounts[0]);
       
       // Send transaction using standard eth_sendTransaction
       const hash = await provider.request({
         method: 'eth_sendTransaction',
         params: [{
-          from: accounts[0],
+          from: walletAccounts[0],
           to: LUKSO_MAINNET_ERC5564_ANNOUNCER,
           data,
         }]
@@ -536,17 +444,12 @@ const Receive = () => {
           <div className="status-card">
             <div className="status-content">
               <div className="status-info">
-                <p>Status: <span className={isLuksoUP ? "status-available" : "status-unavailable"}>
+                <p>Status: <span className={walletConnected ? "status-available" : "status-unavailable"}>
                   {connectionMessage}
                 </span></p>
               </div>
             </div>
           </div>
-          {controllers.length > 0 && (
-            <div className="controllers-info">
-              Controllers found: {controllers.length}
-            </div>
-          )}
         </div>
         
         <div className="meta-address-section">
@@ -732,15 +635,6 @@ const Receive = () => {
         .status-unavailable {
           color: #dc3545;
           font-weight: 500;
-        }
-        
-        .controllers-info {
-          margin-top: 0.5rem;
-          font-size: 0.9rem;
-          color: #666;
-          padding: 0.5rem;
-          background-color: #f8f9fa;
-          border-radius: 4px;
         }
         
         .meta-address-section {

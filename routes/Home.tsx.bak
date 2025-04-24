@@ -2354,8 +2354,6 @@ const Home = () => {
     }
   }, []);
 
-  // Wrap this code in a useEffect hook
-  useEffect(() => {
     if (contextAccounts && contextAccounts.length > 0) {
       const contextAccount = contextAccounts[0];
       console.log('LUKSTEALTH: Setting grid owner from upProvider hook:', contextAccount);
@@ -2371,7 +2369,7 @@ const Home = () => {
       setIsLoadingGridOwner(false);
       setShowGridOwnerCard(true);
     }
-  }, [contextAccounts, fetchGridOwnerProfile, fetchGridOwnerMetaAddress]);
+  }, []);
 
   // Add a completely new effect to ensure proper declaration
   useEffect(() => {

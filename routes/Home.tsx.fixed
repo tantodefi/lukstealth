@@ -1,0 +1,35 @@
+import React, { useState, useEffect, useContext, useRef } from 'react';
+// Copy the existing imports here...
+
+// Create a fixed version of the component
+const Home = () => {
+  // Copy the component code and fix the dependency array in line 2364
+  
+  // In the useEffect where the error is:
+  useEffect(() => {
+    // Effect code...
+    if (contextAccounts && contextAccounts.length > 0) {
+      const contextAccount = contextAccounts[0];
+      console.log('LUKSTEALTH: Setting grid owner from upProvider hook:', contextAccount);
+      
+      setGridOwner(contextAccount as string);
+      // Only call the functions if they exist and are functions
+      if (typeof fetchGridOwnerProfile === 'function') {
+        fetchGridOwnerProfile(contextAccount as string);
+      }
+      if (typeof fetchGridOwnerMetaAddress === 'function') {
+        fetchGridOwnerMetaAddress(contextAccount as string);
+      }
+      setIsLoadingGridOwner(false);
+      setShowGridOwnerCard(true);
+    }
+  }, [contextAccounts]); // Fixed dependency array - removed extra dependencies
+  
+  // Rest of component...
+  
+  return (
+    // JSX content...
+  );
+};
+
+export default Home; 

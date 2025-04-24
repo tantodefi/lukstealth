@@ -1,9 +1,14 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { UPProviderContext } from '../index';
+import { UPProviderContext, useUpProvider } from '../upProvider';
 import ERC725, { ERC725JSONSchema } from '@erc725/erc725.js';
 import Web3 from 'web3';
-import { LUKSO_MAINNET_ERC5564_REGISTRY, registryABI } from '../constants/contractData';
+import { 
+  LUKSO_MAINNET_ERC5564_REGISTRY, 
+  LUKSO_MAINNET_ERC5564_ANNOUNCER,
+  registryABI, 
+  announcerABI as ERC5564_ANNOUNCER_ABI 
+} from '../constants/contractData';
 import { createPublicClient, http, encodeFunctionData, parseEther } from 'viem';
 import { lukso } from 'viem/chains';
 import { generateStealthAddress } from '../utils/crypto';
@@ -49,24 +54,7 @@ const LSP3_SCHEMA: ERC725JSONSchema[] = [
 ];
 
 // Stealth Address Constants
-const LUKSO_MAINNET_ERC5564_ANNOUNCER = '0x8653F395983827E05A6625eED4D045e696980D16';
 const SCHEME_ID_VALUE = 1n;
-
-// Announcer ABI for stealth payments
-const ERC5564_ANNOUNCER_ABI = [
-  {
-    inputs: [
-      { internalType: 'uint256', name: 'schemeId', type: 'uint256' },
-      { internalType: 'address', name: 'stealthAddress', type: 'address' },
-      { internalType: 'bytes', name: 'ephemeralPubKey', type: 'bytes' },
-      { internalType: 'bytes', name: 'metadata', type: 'bytes' }
-    ],
-    name: 'announce',
-    outputs: [],
-    stateMutability: 'nonpayable',
-    type: 'function'
-  }
-];
 
 // Additional interfaces for LUKSO Universal Profile data
 interface UPProfile {
@@ -112,7 +100,7 @@ const Send = () => {
   
   // Get the recipient address from URL parameters if provided
   const location = useLocation();
-  const upContext = useContext(UPProviderContext);
+  const { provider: upProvider, contextAccounts } = useUpProvider();
   
   // Grid owner state
   const [isLoadingGridOwner, setIsLoadingGridOwner] = useState<boolean>(true);
@@ -121,9 +109,6 @@ const Send = () => {
   const [gridOwnerProfile, setGridOwnerProfile] = useState<UPProfile | null>(null);
   const [gridOwnerMetaAddress, setGridOwnerMetaAddress] = useState<string | null>(null);
   const [showGridOwnerPopup, setShowGridOwnerPopup] = useState<boolean>(false);
-  
-  // Get direct reference to UP provider
-  const upProvider = upContext?.upProvider || null;
   
   useEffect(() => {
     // Parse the query parameters
@@ -137,14 +122,14 @@ const Send = () => {
     
     // Check for gridowner
     checkForGridOwner();
-  }, [location, upContext]);
+  }, [location, upProvider, contextAccounts]);
   
   // Function to check for gridowner
   const checkForGridOwner = () => {
     console.log('LUKSTEALTH: Checking for grid owner...');
     
     // Method 1: Direct provider access
-    if (upProvider?.contextAccounts?.length > 0) {
+    if (upProvider && upProvider.contextAccounts && upProvider.contextAccounts.length > 0) {
       console.log('LUKSTEALTH: Found contextAccounts via provider:', upProvider.contextAccounts);
       const contextAccount = upProvider.contextAccounts[0];
       setGridOwner(contextAccount);
@@ -477,7 +462,7 @@ const Send = () => {
         return;
       }
       
-      // Generate one-time stealth address from meta-address
+      // Generate one-time stealth address from meta-address using SDK
       const generatedStealthAddress = generateStealthAddress({
         stealthMetaAddressURI: recipientMetaAddress,
         schemeId: Number(SCHEME_ID_VALUE)

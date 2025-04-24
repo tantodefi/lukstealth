@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { UPProviderContext } from '../index';
+import { useUpProvider } from '../upProvider';
 import { createPublicClient, http, getContract } from 'viem';
 import { lukso } from 'viem/chains';
 import { 
@@ -8,7 +8,7 @@ import {
   LUKSO_MAINNET_ERC5564_ANNOUNCER, 
   announcerABI 
 } from '../constants/contractData';
-import { computeStealthKey } from '../utils/crypto';
+import { computeStealthKey, checkIfStealthAddressIsForMe } from '../utils/crypto';
 import './Scan.css'; // Import the CSS file we'll create
 
 // Define RPC URL constant
@@ -35,14 +35,13 @@ interface StealthTransaction {
 }
 
 const Scan = () => {
-  // Get UP provider context
+  // Get UP provider context using the new hook
   const { 
-    isLuksoUP, 
-    upProvider, 
-    isInitializing: isUPInitializing, 
-    upAccounts,
-    connect: connectUP
-  } = useContext(UPProviderContext);
+    provider, 
+    accounts, 
+    contextAccounts,
+    walletConnected
+  } = useUpProvider();
 
   // State management
   const [viewingKey, setViewingKey] = useState<string>('');
@@ -105,20 +104,20 @@ const Scan = () => {
 
   // Effect to show connection status
   useEffect(() => {
-    if (isUPInitializing) {
+    if (!provider) {
       setConnectionMessage('Initializing LUKSO UP provider...');
-    } else if (isLuksoUP) {
-      setConnectionMessage('LUKSO UP provider initialized');
-      
-      if (upAccounts.length > 0) {
-        setConnectionMessage(`Connected to LUKSO UP: ${truncateAddress(upAccounts[0])}`);
-      } else {
-        setConnectionMessage('LUKSO UP provider ready. Click Connect to connect.');
-      }
     } else {
-      setConnectionMessage('LUKSO UP not detected. Will use MetaMask or other standard wallet if available.');
+      if (accounts.length > 0) {
+        setConnectionMessage(`Connected to LUKSO UP: ${truncateAddress(accounts[0])}`);
+      } else if (contextAccounts.length > 0) {
+        setConnectionMessage(`Context account detected: ${truncateAddress(contextAccounts[0])}`);
+      } else if (walletConnected) {
+        setConnectionMessage('Connected to wallet');
+      } else {
+        setConnectionMessage('Wallet provider ready. Click Connect to connect.');
+      }
     }
-  }, [isLuksoUP, isUPInitializing, upAccounts]);
+  }, [provider, accounts, contextAccounts, walletConnected]);
 
   // Load saved keys from localStorage
   useEffect(() => {
@@ -153,14 +152,13 @@ const Scan = () => {
     try {
       setError(null);
       
-      let accounts;
-      if (isLuksoUP) {
-        accounts = await connectUP();
-      } else if (window.ethereum) {
-        accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-      } else {
+      if (!provider) {
         throw new Error('No wallet provider detected');
       }
+      
+      const accounts = await provider.request({
+        method: 'eth_requestAccounts'
+      });
       
       if (!accounts || accounts.length === 0) {
         throw new Error('No connected wallet accounts found');
@@ -238,61 +236,120 @@ const Scan = () => {
       const lookbackBlocks = blocksPerDay * BigInt(30); // 30 days
       const fromBlock = currentBlock > lookbackBlocks ? currentBlock - lookbackBlocks : BigInt(0);
       
-      // Get all Announcement events
-      const events = await publicClient.getLogs({
-        address: LUKSO_MAINNET_ERC5564_ANNOUNCER as `0x${string}`,
-        event: {
-          type: 'event',
-          name: 'Announcement',
-          inputs: [
-            { indexed: true, name: 'schemeId', type: 'address' },
-            { indexed: true, name: 'caller', type: 'address' },
-            { indexed: false, name: 'announcement', type: 'bytes' }
-          ]
-        },
-        fromBlock,
-        toBlock: 'latest'
-      });
+      // Check both possible announcer addresses
+      const announcerAddresses = [
+        LUKSO_MAINNET_ERC5564_ANNOUNCER as `0x${string}`
+      ];
+
+      // Define the events array to store announcement events
+      type AnnouncementEvent = {
+        address: `0x${string}`;
+        blockHash: `0x${string}`;
+        blockNumber: bigint;
+        logIndex: number;
+        transactionHash: `0x${string}`;
+        transactionIndex: number;
+        args: {
+          schemeId: bigint;
+          stealthAddress: `0x${string}`;
+          caller: `0x${string}`;
+          ephemeralPubKey: `0x${string}`;
+          metadata: `0x${string}`;
+        };
+      };
       
-      console.log(`Found ${events.length} announcement events`);
+      let allEvents: AnnouncementEvent[] = [];
+      
+      // Try each announcer address
+      for (const announcer of announcerAddresses) {
+        console.log(`Trying announcer address: ${announcer}`);
+        try {
+          const announcerEvents = await publicClient.getLogs({
+            address: announcer,
+            event: {
+              type: 'event',
+              name: 'Announcement',
+              inputs: [
+                { indexed: true, name: 'schemeId', type: 'uint256' },
+                { indexed: true, name: 'stealthAddress', type: 'address' },
+                { indexed: true, name: 'caller', type: 'address' },
+                { indexed: false, name: 'ephemeralPubKey', type: 'bytes' },
+                { indexed: false, name: 'metadata', type: 'bytes' }
+              ]
+            },
+            fromBlock,
+            toBlock: 'latest'
+          });
+          
+          console.log(`Found ${announcerEvents.length} announcement events from ${announcer}`);
+          allEvents = [...allEvents, ...announcerEvents];
+        } catch (e) {
+          console.warn(`Error getting logs from ${announcer}:`, e);
+        }
+      }
+      
+      console.log(`Found ${allEvents.length} total announcement events`);
       
       // Process the events
       const foundTransactions: StealthTransaction[] = [];
       
-      for (const event of events) {
+      for (const event of allEvents) {
         try {
-          // Extract announcement data from the event
-          const announcement = event.args.announcement as string;
+          // Extract stealth address and ephemeral public key from the event
+          const stealthAddress = event.args.stealthAddress as string;
+          const ephemeralPublicKey = event.args.ephemeralPubKey as string;
           
-          // Decode the announcement (typical format: stealthAddress (20 bytes) + ephemeralPublicKey (33+ bytes))
-          if (announcement.length < 106) continue; // Minimum length check (20 bytes address + 33 bytes key)
+          console.log(`Checking announcement for stealth address: ${stealthAddress}`);
+          console.log(`With ephemeral key: ${ephemeralPublicKey}`);
           
-          const stealthAddress = '0x' + announcement.slice(2, 42); // First 20 bytes
-          const ephemeralPublicKey = '0x' + announcement.slice(42); // Remaining bytes
+          // Check if this payment is for me using improved function
+          if (!spendingKey) {
+            console.log('Spending key not provided, skipping checkIfStealthAddressIsForMe');
+            
+            // Try to check the balance to see if this might be yours
+            const balance = await publicClient.getBalance({ address: stealthAddress as `0x${string}` });
+            if (balance > BigInt(0)) {
+              console.log(`Found address with balance ${balance}, but can't verify ownership without spending key`);
+            }
+            continue;
+          }
           
-          // In a real implementation, we would:
-          // 1. Use the viewing key and ephemeral key to check if this payment is for us
-          // 2. If it is, compute the private key and get the balance
+          const isForMe = checkIfStealthAddressIsForMe({
+            stealthAddress,
+            ephemeralPublicKey,
+            viewingPrivateKey: key,
+            spendingPrivateKey: spendingKey,
+            schemeId: 1
+          });
           
-          // For now, we'll just add all announcements we find
-          const balance = await getEtherBalance(stealthAddress);
-          
-          // Only add transactions with a positive balance
-          if (balance !== '0 LYX') {
+          if (isForMe) {
+            console.log(`Found a stealth address belonging to you: ${stealthAddress}`);
+            
+            // Check the balance
+            const balance = await publicClient.getBalance({ address: stealthAddress as `0x${string}` });
+            
+            // Add even with zero balance for reference
+            const balanceInEth = balance ? (Number(balance) / 1e18).toFixed(6) + ' LYX' : '0 LYX';
+            console.log(`Balance: ${balanceInEth} (${balance})`);
+            
+            // Get timestamp from block
+            const blockTime = Number((await publicClient.getBlock({ blockHash: event.blockHash })).timestamp);
+            
             foundTransactions.push({
               id: event.transactionHash,
               stealthAddress,
               ephemeralPublicKey,
-              amount: balance,
-              timestamp: Number((await publicClient.getBlock({ blockHash: event.blockHash })).timestamp),
+              amount: balanceInEth,
+              timestamp: blockTime,
               status: 'pending',
               blockNumber: event.blockNumber,
               transactionHash: event.transactionHash
             });
+          } else {
+            console.log(`Address ${stealthAddress} does not belong to you`);
           }
         } catch (error) {
           console.error('Error processing announcement:', error);
-          // Continue with the next announcement
         }
       }
       
@@ -307,101 +364,8 @@ const Scan = () => {
     }
   };
 
-  // Handle withdrawal of funds
-  const handleWithdraw = async (transaction: StealthTransaction) => {
-    try {
-      // Set the specific transaction to withdrawing state
-      setIsWithdrawing(prev => ({
-        ...prev,
-        [transaction.id]: true
-      }));
-      setError(null);
-      setWithdrawSuccess(null);
-      
-      if (!spendingKey) {
-        throw new Error('Spending key is required');
-      }
-      
-      // Connect to wallet first
-      const account = await connectWallet();
-      if (!account) {
-        setIsWithdrawing(prev => ({
-          ...prev,
-          [transaction.id]: false
-        }));
-        return;
-      }
-      
-      console.log(`Withdrawing from stealth address ${transaction.stealthAddress}...`);
-      
-      // Derive the private key for the stealth address
-      const stealthAddressInfo = deriveStealthAddress(
-        transaction.ephemeralPublicKey,
-        viewingKey,
-        spendingKey
-      );
-      
-      if (!stealthAddressInfo) {
-        throw new Error('Failed to derive stealth address from keys');
-      }
-      
-      console.log('Derived stealth address:', stealthAddressInfo.address);
-      
-      // If the derived address doesn't match the transaction address, show an error
-      if (stealthAddressInfo.address.toLowerCase() !== transaction.stealthAddress.toLowerCase()) {
-        throw new Error('Derived stealth address does not match the transaction. Check your keys.');
-      }
-      
-      // Get the balance of the stealth address
-      const balance = await publicClient.getBalance({ 
-        address: transaction.stealthAddress as `0x${string}` 
-      });
-      
-      if (balance <= BigInt(0)) {
-        throw new Error('No funds found at this stealth address');
-      }
-      
-      // Import the private key to the wallet for signing
-      // This would typically be handled by a separate signing utility
-      // For now, we'll just simulate the withdraw
-      
-      // In a real implementation:
-      // 1. Use the private key to sign a transaction sending funds to the user's main address
-      // 2. Broadcast the transaction to the network
-      
-      // For demonstration, we'll simulate a successful withdrawal
-      setTimeout(() => {
-        setTransactions(
-          transactions.map(tx => 
-            tx.id === transaction.id 
-              ? { ...tx, status: 'withdrawn' } 
-              : tx
-          )
-        );
-        setIsWithdrawing(prev => ({
-          ...prev,
-          [transaction.id]: false
-        }));
-        setWithdrawSuccess(`Success! Withdrew ${transaction.amount} from stealth address ${truncateAddress(transaction.stealthAddress)}`);
-      }, 2000);
-    } catch (error: any) {
-      console.error('Error withdrawing funds:', error);
-      setError(`Error withdrawing: ${error.message || 'Unknown error'}`);
-      setIsWithdrawing(prev => ({
-        ...prev,
-        [transaction.id]: false
-      }));
-    }
-  };
-
-  // Format timestamp to human-readable date
-  const formatDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
   return (
     <div className="page-container">
-      {/* Black Banner with White Text */}
       <div className="banner">
         <h1 className="heading">Scan for Stealth Payments</h1>
         <p>Find and withdraw private payments sent to your stealth meta-address</p>
@@ -421,18 +385,18 @@ const Scan = () => {
           <div className="status-card">
             <div className="status-content">
               <div className="status-info">
-                <p>Status: <span className={isLuksoUP ? "status-available" : "status-unavailable"}>
+                <p>Status: <span className={walletConnected ? "status-available" : "status-unavailable"}>
                   {connectionMessage}
                 </span></p>
               </div>
               
-              {!upAccounts.length && (
+              {accounts.length === 0 && (
                 <button 
                   className="connect-button"
                   onClick={connectWallet}
-                  disabled={isUPInitializing}
+                  disabled={!provider}
                 >
-                  {isUPInitializing ? "Initializing..." : "Connect Wallet"}
+                  {!provider ? "Initializing..." : "Connect Wallet"}
                 </button>
               )}
             </div>
@@ -500,69 +464,6 @@ const Scan = () => {
           </div>
         </div>
         
-        {/* Results section */}
-        {scanComplete && (
-          <div className="results-section">
-            <h2>Scan Results</h2>
-            {transactions.length > 0 ? (
-              <div className="transactions-list">
-                {transactions.map((tx) => (
-                  <div key={tx.id} className={`transaction-card ${tx.status === 'withdrawn' ? 'withdrawn' : ''}`}>
-                    <div className="transaction-header">
-                      <span className="transaction-amount">{tx.amount}</span>
-                      <span className={`transaction-status ${tx.status}`}>
-                        {tx.status === 'withdrawn' ? 'Withdrawn' : 'Pending'}
-                      </span>
-                    </div>
-                    
-                    <div className="transaction-details">
-                      <div className="detail-row">
-                        <span className="detail-label">Stealth Address:</span>
-                        <span className="detail-value address">{truncateAddress(tx.stealthAddress)}</span>
-                      </div>
-                      
-                      <div className="detail-row">
-                        <span className="detail-label">Date:</span>
-                        <span className="detail-value">{formatDate(tx.timestamp)}</span>
-                      </div>
-                      
-                      <div className="detail-row">
-                        <span className="detail-label">Ephemeral Key:</span>
-                        <span className="detail-value address">{truncateAddress(tx.ephemeralPublicKey)}</span>
-                      </div>
-                      
-                      {tx.blockNumber !== undefined && (
-                        <div className="detail-row">
-                          <span className="detail-label">Block:</span>
-                          <span className="detail-value">{tx.blockNumber.toString()}</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <div className="transaction-actions">
-                      <button 
-                        onClick={() => handleWithdraw(tx)}
-                        disabled={isWithdrawing[tx.id] || tx.status === 'withdrawn' || !spendingKey}
-                        className={`withdraw-button ${isWithdrawing[tx.id] || tx.status === 'withdrawn' || !spendingKey ? 'disabled' : ''}`}
-                      >
-                        {isWithdrawing[tx.id] 
-                          ? 'Withdrawing...' 
-                          : tx.status === 'withdrawn'
-                          ? 'Withdrawn'
-                          : 'Withdraw Funds'}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="no-results">
-                <p>No stealth payments found. Try scanning again later or check your viewing key.</p>
-              </div>
-            )}
-          </div>
-        )}
-        
         <div className="back-link">
           <Link to="/">← Back to Home</Link>
         </div>
@@ -571,4 +472,4 @@ const Scan = () => {
   );
 };
 
-export default Scan; 
+export default Scan;

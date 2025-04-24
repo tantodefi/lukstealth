@@ -1,6 +1,6 @@
 // Registry contract data for stealth address system
 export const LUKSO_MAINNET_ERC5564_REGISTRY = "0x4E581D6a88bc7D60D092673904d961B6b0961A40";
-export const LUKSO_MAINNET_ERC5564_ANNOUNCER = "0x5Fc97Acd946fFCcB94be78AB53e6a29f2f2D7Dbf";
+export const LUKSO_MAINNET_ERC5564_ANNOUNCER = "0x8653F395983827E05A6625eED4D045e696980D16";
 
 // Registry ABI
 export const registryABI = [
@@ -80,15 +80,21 @@ export const registryABI = [
   }
 ]; 
 
-// Announcer ABI
+// Announcer ABI from GitHub
 export const announcerABI = [
   {
     "anonymous": false,
     "inputs": [
       {
         "indexed": true,
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "schemeId",
+        "type": "uint256"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "stealthAddress",
         "type": "address"
       },
       {
@@ -100,7 +106,13 @@ export const announcerABI = [
       {
         "indexed": false,
         "internalType": "bytes",
-        "name": "announcement",
+        "name": "ephemeralPubKey",
+        "type": "bytes"
+      },
+      {
+        "indexed": false,
+        "internalType": "bytes",
+        "name": "metadata",
         "type": "bytes"
       }
     ],
@@ -110,13 +122,23 @@ export const announcerABI = [
   {
     "inputs": [
       {
-        "internalType": "address",
+        "internalType": "uint256",
         "name": "schemeId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "stealthAddress",
         "type": "address"
       },
       {
         "internalType": "bytes",
-        "name": "announcement",
+        "name": "ephemeralPubKey",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes",
+        "name": "metadata",
         "type": "bytes"
       }
     ],

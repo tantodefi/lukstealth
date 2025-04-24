@@ -163,11 +163,11 @@ const Home = () => {
   const [savedAddresses, setSavedAddresses] = useState<StealthAddressInfo[]>([]);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [selectedAddress, setSelectedAddress] = useState<StealthAddressInfo | null>(null);
-  const [addressBalances, setAddressBalances] = useState<{[address: string]: string}>({}, []);
+  const [addressBalances, setAddressBalances] = useState<{[address: string]: string}>({});
   const walletMenuRef = useRef<HTMLDivElement>(null);
   
   // State for showing full addresses/keys
-  const [visibleFullAddresses, setVisibleFullAddresses] = useState<{[key: string]: boolean}>({}, []);
+  const [visibleFullAddresses, setVisibleFullAddresses] = useState<{[key: string]: boolean}>({});
   const [copyNotification, setCopyNotification] = useState<string | null>(null);
   
   
@@ -234,7 +234,7 @@ const Home = () => {
               console.log('LUKSTEALTH: Trying to request contextAccounts from provider');
               const contextAccounts = await provider.request({ 
                 method: 'up_contextAccounts' 
-              }, []);
+              });
               
               console.log('LUKSTEALTH: Got context accounts from request:', contextAccounts);
               
@@ -524,7 +524,7 @@ const Home = () => {
             })
             .catch((error: any) => {
               console.warn('LUKSTEALTH: Error requesting context accounts:', error);
-            }, []);
+            });
         } catch (error) {
           console.warn('LUKSTEALTH: Error using provider methods:', error);
         }
@@ -606,7 +606,7 @@ const Home = () => {
         try {
           if (provider && typeof provider.request === 'function') {
             console.log('LUKSTEALTH: Trying up_contextAccounts method');
-            const contextAccounts = await provider.request({ method: 'up_contextAccounts' }, []);
+            const contextAccounts = await provider.request({ method: 'up_contextAccounts' });
             
             console.log('LUKSTEALTH: Got context accounts response:', contextAccounts);
             
@@ -646,9 +646,9 @@ const Home = () => {
             }
           }
         }
-      }, []);
+      });
     }
-  }, []);
+  });
 
   // Initialize from provider - enhance with iframe messaging for incognito mode
   const initializeFromProvider = async () => {
@@ -686,11 +686,11 @@ const Home = () => {
         // Try to find context accounts by requesting data from provider
         try {
           // Check chain ID first - matches reference implementation
-          const chainId = await provider.request({ method: 'eth_chainId', params: [] }, []);
+          const chainId = await provider.request({ method: 'eth_chainId', params: [] });
           console.log('LUKSTEALTH: Chain ID from provider:', chainId);
           
           // Then check for accounts
-          const accounts = await provider.request({ method: 'eth_accounts', params: [] }, []);
+          const accounts = await provider.request({ method: 'eth_accounts', params: [] });
           console.log('LUKSTEALTH: Accounts from provider:', accounts);
           
           // If we have a provider with accounts but no context, check again
@@ -953,7 +953,7 @@ const Home = () => {
     } else {
       console.log('LUKSTEALTH: No address found in URL, will try other methods');
     }
-  }, []);
+  });
 
   // Log core information on mount for debugging
   useEffect(() => {
@@ -971,7 +971,7 @@ const Home = () => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, []);
+  });
 
   // Add enhanced DOM monitoring with MutationObserver for incognito mode detection
   useEffect(() => {
@@ -1035,7 +1035,7 @@ const Home = () => {
           }
         }
       }
-    }, []);
+    });
     
     // Start observing the document with the configured parameters
     observer.observe(document.documentElement, {
@@ -1043,7 +1043,7 @@ const Home = () => {
       subtree: true,
       attributes: true,
       attributeFilter: ['data-context', 'data-lukso-context', 'data-up-context']
-    }, []);
+    });
     
     // Check for any existing context elements
     const checkExisting = () => {
@@ -1093,7 +1093,7 @@ const Home = () => {
     return () => {
       observer.disconnect();
     };
-  }, []);
+  });
 
   // Additional useEffect specifically for window.lukso fallback
   useEffect(() => {
@@ -1203,7 +1203,7 @@ const Home = () => {
         console.log("Using UP provider to get accounts");
         
         try {
-          const accounts = await provider.request({ method: 'eth_requestAccounts' }, []);
+          const accounts = await provider.request({ method: 'eth_requestAccounts' });
           console.log("Raw accounts from UP provider:", accounts);
           
           if (accounts && accounts.length > 0) {
@@ -1222,7 +1222,7 @@ const Home = () => {
         console.log("Falling back to window.lukso for getting accounts");
         
         try {
-          const accounts = await window.lukso.request({ method: 'eth_requestAccounts' }, []);
+          const accounts = await window.lukso.request({ method: 'eth_requestAccounts' });
           if (accounts && accounts.length > 0) {
             console.log('Connected LUKSO UP account found:', accounts[0]);
             setUpAddress(accounts[0]);
@@ -1253,7 +1253,7 @@ const Home = () => {
         console.log('Connecting using UP provider');
         try {
           // Request accounts which triggers connection
-          const accounts = await provider.request({ method: 'eth_requestAccounts' }, []);
+          const accounts = await provider.request({ method: 'eth_requestAccounts' });
           
           if (accounts && accounts.length > 0) {
             setUpAddress(accounts[0]);
@@ -1274,7 +1274,7 @@ const Home = () => {
       else if (typeof window !== 'undefined' && 'lukso' in window) {
         console.log('Connecting using window.lukso');
         try {
-          const accounts = await window.lukso.request({ method: 'eth_requestAccounts' }, []);
+          const accounts = await window.lukso.request({ method: 'eth_requestAccounts' });
           
           if (accounts && accounts.length > 0) {
             setUpAddress(accounts[0]);
@@ -1515,7 +1515,7 @@ const Home = () => {
                 name: 'LUKSO User',
                 avatar: '',
             description: 'Profile format not recognized'
-              }, []);
+              });
             }
           } else {
         // Default profile if no data
@@ -1523,7 +1523,7 @@ const Home = () => {
               name: 'LUKSO User',
               avatar: '',
               description: 'No profile information available'
-            }, []);
+            });
           }
       } catch (error) {
       console.error('Error fetching profile:', error);
@@ -1533,7 +1533,7 @@ const Home = () => {
             name: 'LUKSO User',
             avatar: '',
         description: 'Error loading profile'
-          }, []);
+          });
     } finally {
           setIsLoadingGridOwner(false);
       setIsImageLoading(false);
@@ -1557,7 +1557,7 @@ const Home = () => {
         client = createPublicClient({
           chain: lukso,
           transport: http(RPC_URL)
-        }, []);
+        });
         
         // Test connection with a simple eth_blockNumber call
         await client.getBlockNumber();
@@ -1573,7 +1573,7 @@ const Home = () => {
             client = createPublicClient({
               chain: lukso,
               transport: http(rpcUrl)
-            }, []);
+            });
             
             // Test connection with a simple eth_blockNumber call
             await client.getBlockNumber();
@@ -1611,7 +1611,7 @@ const Home = () => {
           abi: registryABI,
           functionName: 'getStealthMetaAddress',
           args: [address as `0x${string}`]
-        }, []);
+        });
         
         console.log('Meta address lookup result:', metaAddressResult);
         
@@ -1674,7 +1674,7 @@ const Home = () => {
               abi: registryABI,
               functionName: 'stealthMetaAddressOf',
               args: [address as `0x${string}`]
-            }, []);
+            });
             
             console.log('Fallback lookup result:', fallbackResult);
             if (fallbackResult && typeof fallbackResult === 'string') {
@@ -1698,7 +1698,7 @@ const Home = () => {
       isLoadingGridOwner, 
       gridOwnerProfile,
       shouldShow: !!gridOwner && showGridOwnerCard 
-    }, []);
+    });
   }, [gridOwner, showGridOwnerCard, isLoadingGridOwner, gridOwnerProfile]);
 
   // Add a special injection script to detect URL in cross-domain scenarios
@@ -1796,7 +1796,7 @@ const Home = () => {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, []);
+  });
   
   // Load saved addresses from localStorage
   useEffect(() => {
@@ -1817,7 +1817,7 @@ const Home = () => {
                 ephemeralPublicKey: details.ephemeralPublicKey,
                 timestamp: Date.now(),
                 name: 'My Stealth Address'
-              }, []);
+              });
             }
           } catch (e) {
             console.error('Failed to parse stealth address details:', e);
@@ -1832,7 +1832,7 @@ const Home = () => {
             type: 'meta',
             timestamp: Date.now() - 1000, // Slightly older than stealth address
             name: 'My Stealth Meta-Address'
-          }, []);
+          });
         }
         
         // Check for keys
@@ -1866,7 +1866,7 @@ const Home = () => {
               return {...addr, spendingKey};
             }
             return addr;
-          }, []);
+          });
           
           setSavedAddresses(updatedAddresses);
         } else {
@@ -1883,7 +1883,7 @@ const Home = () => {
     const intervalId = setInterval(loadSavedAddresses, 30000);
     
     return () => clearInterval(intervalId);
-  }, []);
+  });
   
   // Effect to fetch balances for saved addresses
   useEffect(() => {
@@ -1893,7 +1893,7 @@ const Home = () => {
       const publicClient = createPublicClient({
         chain: lukso,
         transport: http(RPC_URL)
-      }, []);
+      });
       
       const newBalances: {[address: string]: string} = {};
       
@@ -1905,7 +1905,7 @@ const Home = () => {
             }).catch(error => {
               console.warn(`Error fetching balance for ${addrInfo.address}:`, error);
               return BigInt(0);
-            }, []);
+            });
             
             // Convert balance from wei to LYX
             const balanceInLYX = parseFloat(balance.toString()) / 1e18;
@@ -1938,7 +1938,7 @@ const Home = () => {
         console.error('Failed to copy:', err);
         setCopyNotification('Failed to copy to clipboard');
         setTimeout(() => setCopyNotification(null), 2000);
-      }, []);
+      });
   };
   
   // Remove address from localStorage and state
@@ -1976,7 +1976,7 @@ const Home = () => {
       }
       
       // Get user accounts
-      const accounts = await provider.request({ method: 'eth_requestAccounts' }, []);
+      const accounts = await provider.request({ method: 'eth_requestAccounts' });
       if (!accounts || accounts.length === 0) {
         alert("No accounts found. Please connect your wallet first.");
         return;
@@ -1986,7 +1986,7 @@ const Home = () => {
       const generatedStealthAddress = generateStealthAddress({
         stealthMetaAddressURI: recipientMetaAddress,
         schemeId: Number(SCHEME_ID_VALUE)
-      }, []);
+      });
       
       console.log("Generated stealth address:", generatedStealthAddress);
       
@@ -2002,7 +2002,7 @@ const Home = () => {
           to: generatedStealthAddress.stealthAddress,
           value: amountHex
         }]
-      }, []);
+      });
       
       console.log("Transaction sent:", txHash);
       
@@ -2023,7 +2023,7 @@ const Home = () => {
             ]
           })
         }]
-      }, []);
+      });
       
       alert("Stealth payment sent successfully!");
       
@@ -2171,7 +2171,7 @@ const Home = () => {
       // Clean up the style element when the component unmounts
       document.head.removeChild(styleElement);
     };
-  }, []);
+  });
   
   // Existing useEffect below...
 
@@ -2295,7 +2295,7 @@ const Home = () => {
             console.warn(`LUKSTEALTH: Error parsing ${attrName}:`, e);
           }
         }
-      }, []);
+      });
       
       console.log('LUKSTEALTH: No context accounts found after comprehensive DOM inspection');
       return null;
@@ -2352,10 +2352,8 @@ const Home = () => {
       
       return () => clearInterval(interval);
     }
-  }, []);
+  });
 
-  // Wrap this code in a useEffect hook
-  useEffect(() => {
     if (contextAccounts && contextAccounts.length > 0) {
       const contextAccount = contextAccounts[0];
       console.log('LUKSTEALTH: Setting grid owner from upProvider hook:', contextAccount);
@@ -2371,12 +2369,7 @@ const Home = () => {
       setIsLoadingGridOwner(false);
       setShowGridOwnerCard(true);
     }
-  }, [contextAccounts, fetchGridOwnerProfile, fetchGridOwnerMetaAddress]);
-
-  // Add a completely new effect to ensure proper declaration
-  useEffect(() => {
-    console.log('Initializing component');
-  }, []);
+  });
 
   return (    <div className="page-container">
       {/* Wallet Menu Button */}
